@@ -95,6 +95,8 @@ def analyze_and_plot_top_genomes(all_stats, filename="top_genomes.png", start_cy
         alive = snap['alive']
         status = snap['status']
         hashes = snap['hash']
+        if hashes.ndim == 2:
+            hashes = (hashes[:, 0].astype(np.int64) << 32) | (hashes[:, 1].astype(np.uint32).astype(np.int64))
         gest_times = snap['gestation_time']
         
         if only_self_replicators:

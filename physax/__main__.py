@@ -84,12 +84,12 @@ if __name__ == "__main__":
         from physax.model import global_self_replicating_genomes, global_fertile_genomes
         import numpy as np
         
-        all_genomes_dict = {str(h): g for h, g in global_self_replicating_genomes.items()}
+        all_genomes_dict = {f"{h[0]}_{h[1]}" if isinstance(h, tuple) else str(h): g for h, g in global_self_replicating_genomes.items()}
         if all_genomes_dict:
             np.savez(str(path / "self_replicating_genomes_details.npz"), **all_genomes_dict)
             print(f"Saved {len(all_genomes_dict)} self-replicating genomes to genomes_details.npz")
 
-        fertile_genomes_dict = {str(h): g for h, g in global_fertile_genomes.items()}
+        fertile_genomes_dict = {f"{h[0]}_{h[1]}" if isinstance(h, tuple) else str(h): g for h, g in global_fertile_genomes.items()}
         if fertile_genomes_dict:
             np.savez(str(path / "fertile_genomes_details.npz"), **fertile_genomes_dict)
             print(f"Saved {len(fertile_genomes_dict)} fertile genomes to fertile_genomes_details.npz")

@@ -76,7 +76,7 @@ class Agent(NamedTuple):
             # Caching
             read_from_child=jnp.bool_(False),
             status=jnp.int32(UNCLASSIFIED),
-            genome_hash=jnp.int32(0),
+            genome_hash=jnp.zeros(2, dtype=jnp.int32),
         )
 
     @staticmethod
@@ -120,6 +120,7 @@ class Agent(NamedTuple):
         ip_start = (parsed['separator_pos'] + 1) % jnp.maximum(genome_len, 1)
         
         hash_val = cls._hash_genome(genome, genome_len, cfg)
+        hash_match = jnp.all(hash_val == parent_hash)
         
         state = cls.create_empty(cfg)
         return state._replace(
@@ -133,13 +134,13 @@ class Agent(NamedTuple):
             instruction_lengths=parsed['instruction_lengths'],
             se_values=state.se_values.at[0].set(ip_start),
             genome_hash=hash_val,
-            status=jnp.where(hash_val == parent_hash, parent_status, state.status),
-            gestation_time=jnp.where(hash_val == parent_hash, parent_gestation, state.gestation_time),
-            executed_instructions=jnp.where(hash_val == parent_hash, jnp.int32(0), state.executed_instructions),
-            child=jnp.where(hash_val == parent_hash, genome, state.child),
-            child_len=jnp.where(hash_val == parent_hash, genome_len, state.child_len),
+            status=jnp.where(hash_match, parent_status, state.status),
+            gestation_time=jnp.where(hash_match, parent_gestation, state.gestation_time),
+            executed_instructions=jnp.where(hash_match, jnp.int32(0), state.executed_instructions),
+            child=jnp.where(hash_match, genome, state.child),
+            child_len=jnp.where(hash_match, genome_len, state.child_len),
             child_copied=jnp.where(
-                hash_val == parent_hash, 
+                hash_match, 
                 jnp.arange(cfg.max_genome_len) < genome_len, 
                 state.child_copied
             )
@@ -147,18 +148,19 @@ class Agent(NamedTuple):
 
     @classmethod
     def _hash_genome(cls, genome, genome_len, cfg: Config):
-        # Simple polynomial rolling hash for genome
-        # Use prime 31 and modulo 2^63-1
+        # Dual rolling hash to prevent collisions
         positions = jnp.arange(cfg.max_genome_len)
         valid = positions < genome_len
         
-        def hash_step(h, i):
+        def hash_step(carry, i):
+            h1, h2 = carry
             val = jnp.where(valid[i], genome[i], jnp.int32(0))
-            new_h = (h * jnp.int32(31) + val) % jnp.int32(2147483647)
-            return new_h, None
+            new_h1 = (h1 * jnp.int32(31) + val) % jnp.int32(2147483647)
+            new_h2 = (h2 * jnp.int32(37) + val) % jnp.int32(2147483579)
+            return (new_h1, new_h2), None
             
-        h_final, _ = lax.scan(hash_step, jnp.int32(0), positions)
-        return h_final
+        (h1_final, h2_final), _ = lax.scan(hash_step, (jnp.int32(0), jnp.int32(0)), positions)
+        return jnp.stack([h1_final, h2_final])
 
     @classmethod
     def _parse_genome(cls, genome, genome_len, cfg: Config):

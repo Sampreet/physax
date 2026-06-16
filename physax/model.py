@@ -28,7 +28,7 @@ class GenomeDB(NamedTuple):
 
 def init_genome_db(cfg: Config):
     return GenomeDB(
-        keys=jnp.full(HASH_TABLE_SIZE + 1, EMPTY_KEY, dtype=jnp.int32),
+        keys=jnp.full((HASH_TABLE_SIZE + 1, 2), EMPTY_KEY, dtype=jnp.int32),
         statuses=jnp.full(HASH_TABLE_SIZE + 1, UNCLASSIFIED, dtype=jnp.int32),
         gestations=jnp.full(HASH_TABLE_SIZE + 1, 2147483647, dtype=jnp.int32),
         child_genomes=jnp.full((HASH_TABLE_SIZE + 1, cfg.max_genome_len), BLANK, dtype=jnp.int32),
@@ -37,11 +37,12 @@ def init_genome_db(cfg: Config):
 
 def lookup_db(hashes, db: GenomeDB):
     def lookup_one(h):
+        start_hash = jnp.abs(h[0])
         def body_fn(i, state):
             found, idx = state
-            probe_idx = (h + i) % HASH_TABLE_SIZE
+            probe_idx = (start_hash + i) % HASH_TABLE_SIZE
             key = db.keys[probe_idx]
-            is_match = (key == h) & (h != EMPTY_KEY)
+            is_match = jnp.all(key == h) & (h[0] != EMPTY_KEY)
             new_found = found | is_match
             new_idx = jnp.where(is_match & ~found, probe_idx, idx)
             return new_found, new_idx
@@ -51,11 +52,12 @@ def lookup_db(hashes, db: GenomeDB):
 
 def add_to_db(db: GenomeDB, pop: Agent, mask: jnp.ndarray, cfg: Config):
     def find_slot(h):
+        start_hash = jnp.abs(h[0])
         def body_fn(i, state):
             found, idx = state
-            probe_idx = (h + i) % HASH_TABLE_SIZE
+            probe_idx = (start_hash + i) % HASH_TABLE_SIZE
             key = db.keys[probe_idx]
-            is_valid = (key == EMPTY_KEY) | (key == h)
+            is_valid = jnp.all(key == EMPTY_KEY) | jnp.all(key == h)
             new_found = found | is_valid
             new_idx = jnp.where(is_valid & ~found, probe_idx, idx)
             return new_found, new_idx
@@ -90,7 +92,7 @@ def collect_self_replicating(hashes, genomes, mask):
     mask_np = np.array(mask)
     valid_indices = np.where(mask_np)[0]
     for idx in valid_indices:
-        h = int(hashes_np[idx])
+        h = (int(hashes_np[idx, 0]), int(hashes_np[idx, 1]))
         if h not in global_self_replicating_genomes:
             global_self_replicating_genomes[h] = np.copy(genomes_np[idx])
 
@@ -100,7 +102,7 @@ def collect_fertile(hashes, genomes, mask):
     mask_np = np.array(mask)
     valid_indices = np.where(mask_np)[0]
     for idx in valid_indices:
-        h = int(hashes_np[idx])
+        h = (int(hashes_np[idx, 0]), int(hashes_np[idx, 1]))
         if h not in global_fertile_genomes:
             global_fertile_genomes[h] = np.copy(genomes_np[idx])
 

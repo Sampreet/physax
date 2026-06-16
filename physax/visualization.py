@@ -68,6 +68,8 @@ def save_grid_gif(snapshots, filename, cfg):
 
         if cfg.use_species_color and 'hash' in snap:
             hashes = snap['hash']
+            if hashes.ndim == 2:
+                hashes = hashes[:, 0]
             h = (hashes.astype(np.float32) * 0.618033988749895) % 1.0
             s = np.full_like(h, 0.8)
             v = np.full_like(h, 1.0)
@@ -263,7 +265,7 @@ def save_custom_3panel_gif(snapshots, filename, cfg):
 
     frames = []
     
-    for pi, snap in enumerate(snapshots):  # [::2]
+    for pi, snap in enumerate(snapshots[::20]):  # [::2]
         alive = snap.get('alive', np.array([]))
         if len(alive) == 0:
             continue
@@ -275,6 +277,8 @@ def save_custom_3panel_gif(snapshots, filename, cfg):
         # Panel 1: Unique Hash
         ax_hash = axes[0]
         hash_vals = snap.get('hash', np.zeros_like(alive, dtype=np.uint32))
+        if hash_vals.ndim == 2:
+            hash_vals = hash_vals[:, 0]
         
         # Map hash to RGB using 'hsv' colormap
         cmap_hash = plt.get_cmap('hsv')
@@ -393,6 +397,8 @@ def plot_gestation_and_diversity(stats, filename="gestation_diversity.png"):
         status = snap['status']
         gest_times = snap['gestation_time']
         hashes = snap['hash']
+        if hashes.ndim == 2:
+            hashes = (hashes[:, 0].astype(np.int64) << 32) | (hashes[:, 1].astype(np.uint32).astype(np.int64))
         
         cycles.append(cycle)
         

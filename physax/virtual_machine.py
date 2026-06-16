@@ -53,6 +53,7 @@ class VirtualMachine:
         instr_idx = jnp.where(agent.n_instructions > 0, instr_idx, 0)
         instr = agent.instruction_table[instr_idx]
         instr_len = agent.instruction_lengths[instr_idx]
+        instr_len = jnp.where(fetched != BLANK, instr_len, 0)
 
         # 3. Execute micro-ops
         # The fillOperands logic: read operands from instruction array;
@@ -191,7 +192,14 @@ class VirtualMachine:
 
         (final_state, final_args), _ = lax.scan(micro_op_step, (init_state, init_args), jnp.arange(self.cfg.max_micro_ops))
 
-        new_ip = final_state.se_vals[0] + 1
+        # Calculate skip offset from conditional instructions (IFZERO/IFNOTZERO)
+        skip_offset = final_state.se_vals[0] - ip_val
+        new_ip = final_args.ip_for_overflow + 1 + skip_offset
+        
+        # If jump, use the jumped address directly
+        new_ip = jnp.where(final_state.did_jump, final_state.se_vals[0], new_ip)
+        
+        # If divide returned, use that address directly
         new_ip = jnp.where(final_state.divide_returned, final_state.se_vals[0], new_ip)
 
         do_divide_success = final_state.has_ch & ~agent.has_child

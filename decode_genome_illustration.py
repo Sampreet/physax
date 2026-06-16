@@ -250,7 +250,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Decode and illustrate division of a specific genome hash.")
     parser.add_argument("--hash", type=int, default=None, help="The hash of the genome to decode (hyperparamter)")
     parser.add_argument("--folder", type=str, default=None, help="Folder name of the simulation run inside the base path")
-    parser.add_argument("--max_steps", type=int, default=340000, help="Maximum simulation steps to run")
+    parser.add_argument("--max_steps", type=int, default=1000, help="Maximum simulation steps to run")
     args = parser.parse_args()
     
     # Read base path from .env if it exists
@@ -310,21 +310,42 @@ if __name__ == "__main__":
     npz_used_path = None
     hash_str = str(args.hash)
     
+    def find_key_in_data(data, h_str):
+        # 1. Try direct match
+        for k in data.keys():
+            if k == h_str or k.startswith(h_str + "_"):
+                return k
+        # 2. Try 64-bit combined hash decomposition
+        try:
+            h_int = int(h_str)
+            h0 = h_int >> 32
+            h1 = h_int & 0xffffffff
+            target_key = f"{h0}_{h1}"
+            if target_key in data:
+                return target_key
+        except ValueError:
+            pass
+        return None
+    
     if npz_path.exists():
         try:
             data = np.load(npz_path)
-            if hash_str in data:
+            matching_key = find_key_in_data(data, hash_str)
+            if matching_key is not None:
                 genomes_data = data
                 npz_used_path = npz_path
+                hash_str = matching_key
         except Exception as e:
             pass
             
     if genomes_data is None and fertile_npz_path.exists():
         try:
             data = np.load(fertile_npz_path)
-            if hash_str in data:
+            matching_key = find_key_in_data(data, hash_str)
+            if matching_key is not None:
                 genomes_data = data
                 npz_used_path = fertile_npz_path
+                hash_str = matching_key
         except Exception as e:
             pass
             
@@ -344,7 +365,18 @@ if __name__ == "__main__":
                     snap = chunk['snapshot']
                     h_arr = snap['hash']
                     s_arr = snap['status']
-                    mask = h_arr == args.hash
+                    if h_arr.ndim == 2:
+                        try:
+                            h_int = int(args.hash)
+                            h0 = h_int >> 32
+                            h1 = h_int & 0xffffffff
+                            mask = (h_arr[:, 0] == h0) & (h_arr[:, 1] == h1)
+                            if not np.any(mask):
+                                mask = (h_arr[:, 0] == args.hash) | (h_arr[:, 1] == args.hash)
+                        except ValueError:
+                            mask = (h_arr[:, 0] == args.hash) | (h_arr[:, 1] == args.hash)
+                    else:
+                        mask = h_arr == args.hash
                     if np.any(mask):
                         statuses.extend(list(np.unique(s_arr[mask])))
                 if statuses:
