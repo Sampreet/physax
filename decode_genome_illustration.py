@@ -117,9 +117,9 @@ def run_illustration(genome_arr, hash_val, folder_path, max_steps):
     print(f"Run folder: {folder_path}")
     print(f"Output saved to: {output_filename}\n")
     
-    # Calculate genome length (number of genes before first padding -1)
-    blanks = np.where(genome_arr == -1)[0]
-    genome_len = int(blanks[0]) if len(blanks) > 0 else len(genome_arr)
+    # Calculate genome length (excluding trailing padding of -1)
+    non_blanks = np.where(genome_arr != -1)[0]
+    genome_len = int(non_blanks[-1]) + 1 if len(non_blanks) > 0 else 0
     
     # Create JAX configuration
     cfg = make_config(pop_size=1, initial_pop=1, max_genome_len=max(256, len(genome_arr)))
@@ -196,10 +196,10 @@ def run_illustration(genome_arr, hash_val, folder_path, max_steps):
         print(f"\n{CYAN}{'='*40}{RESET}")
         print(f"{CYAN}--- Step {step} ---{RESET}")
         
-        # Visualize full tape up to the first BLANK
+        # Visualize full tape up to the last non-blank element
         genome_vals = np.array(agent.genome)
-        blanks = np.where(genome_vals == -1)[0]
-        last_idx = blanks[0] if len(blanks) > 0 else len(genome_vals) - 1
+        non_blanks = np.where(genome_vals != -1)[0]
+        last_idx = int(non_blanks[-1]) if len(non_blanks) > 0 else 0
         
         tape_snippet = []
         for j in range(last_idx + 1):
@@ -276,7 +276,7 @@ if __name__ == "__main__":
         folder_path = max(runs, key=lambda p: p.stat().st_mtime)
         print(f"Auto-selected most recent run: {folder_path}")
         
-    npz_path = folder_path / "genomes_details.npz"
+    npz_path = folder_path / "self_replicating_genomes_details.npz"
     fertile_npz_path = folder_path / "fertile_genomes_details.npz"
     if not npz_path.exists() and not fertile_npz_path.exists():
         print(f"Error: Could not find genomes details files: {npz_path} or {fertile_npz_path}")
