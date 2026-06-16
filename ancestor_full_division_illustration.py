@@ -19,7 +19,7 @@ class TeeLogger:
         self.terminal.flush()
         self.log.flush()
 
-from physax.config import make_config, BLANK, OP_NAMES, N_OPERANDS
+from physax.config import make_config, BLANK, OP_NAMES, N_OPERANDS, UNCLASSIFIED
 from physax.agent import Agent
 from physax.virtual_machine import VirtualMachine
 
@@ -115,10 +115,15 @@ def run_test():
     
     # Initialize the ancestor genome
     ancestor_genome, ancestor_len = Agent.create_ancestor_genome(cfg)
-    color = jnp.array([1.0, 1.0, 1.0])
-    
     # Create the agent state
-    agent = Agent.init_organism(ancestor_genome, ancestor_len, color, cfg)
+    agent = Agent.init_organism(
+        ancestor_genome,
+        ancestor_len,
+        jnp.int32(-1),
+        jnp.int32(UNCLASSIFIED),
+        jnp.int32(-1),
+        cfg
+    )
     vm = VirtualMachine(cfg)
     key = random.PRNGKey(42)
     
