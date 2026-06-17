@@ -250,11 +250,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Decode and illustrate division of a specific genome hash.")
     parser.add_argument("--hash", type=int, default=None, help="The hash of the genome to decode (hyperparamter)")
     parser.add_argument("--folder", type=str, default=None, help="Folder name of the simulation run inside the base path")
+    parser.add_argument("--base_path", type=str, default="output", help="Base path of the simulation runs")
     parser.add_argument("--max_steps", type=int, default=1000, help="Maximum simulation steps to run")
     args = parser.parse_args()
     
     # Read base path from .env if it exists
-    base_path = Path("output")
+    base_path = Path(args.base_path)
     env_file = Path(".env")
     if env_file.exists():
         with open(env_file, "r") as f:

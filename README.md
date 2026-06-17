@@ -25,5 +25,14 @@ CUDA_VISIBLE_DEVICES=2 python -m physax --pop_size 16384 --initial_pop 50 --tota
 CUDA_VISIBLE_DEVICES=0 python -m physax --toy
 
 # re-run visualization of the run (pass folder name, base path should be in the .env file):
-python -m physax.visualization --folder run_2026-06-14_12-22-49_300cycles
+python -m physax.visualization --folder run_30000_cycles_seed_49_2026-06-15_00-09
+
+
+# view the list of genomes of a certain status at a given cycle
+python show_cycle_genomes.py --cycle 100000 --status SELF_REPLICATING --folder run_100000_cycles_seed_54_2026-06-16_23-08 --top_n 10
+
+# decode genome from folder
+python decode_genome_illustration.py --folder run_100000_cycles_seed_54_2026-06-16_23-08 --hash 3427106465219753476
+
+
 ```
