@@ -51,6 +51,10 @@ def lookup_db(hashes, db: GenomeDB):
     return jax.vmap(lookup_one)(hashes)
 
 def add_to_db(db: GenomeDB, pop: Agent, mask: jnp.ndarray, cfg: Config):
+    # Only add valid, newly classified genomes (Self-Rep, Fertile, Non-Fertile, Non-Standard)
+    # Since VM is deterministic, we can cache all classified genomes.
+    to_add = mask & (pop.status != UNCLASSIFIED)
+
     def find_slot(h):
         start_hash = jnp.abs(h[0])
         def body_fn(i, state):
