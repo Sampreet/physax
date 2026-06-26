@@ -7,11 +7,7 @@ from functools import partial
 from tqdm import trange
 import os
 import pickle
-try:
-    import wandb
-    WANDB_AVAILABLE = True
-except ImportError:
-    WANDB_AVAILABLE = False
+import physax.wandb_logger as wandb_logger
 
 from physax.config import *
 from physax.agent import Agent
@@ -332,23 +328,8 @@ class Model:
         os.makedirs(output_dir, exist_ok=True)
 
         if use_wandb:
-            if not WANDB_AVAILABLE:
-                print("WARNING: wandb not installed. Run: pip install wandb")
+            if not wandb_logger.init_wandb(self.cfg, total_cycles):
                 use_wandb = False
-            else:
-                wandb.init(
-                    project="physis-jax",
-                    config={
-                        "total_cycles": total_cycles,
-                        "pop_size": self.cfg.pop_size,
-                        "initial_pop": self.cfg.initial_pop,
-                        "max_genome_len": self.cfg.max_genome_len,
-                        "steps_per_update": self.cfg.steps_per_update,
-                        "copy_mutation_rate": self.cfg.copy_mutation_rate,
-                        "divide_insert_rate": self.cfg.divide_insert_rate,
-                        "divide_delete_rate": self.cfg.divide_delete_rate,
-                    }
-                )
 
         global_self_replicating_genomes.clear()
         global_fertile_genomes.clear()
@@ -423,12 +404,7 @@ class Model:
                 print(f"Cycle {cycle_num}: Pop={pop_size}, Births={births}, Percentiles={q_len}")
 
                 if use_wandb:
-                    wandb.log({
-                        "cycle": cycle_num,
-                        "population/size": pop_size,
-                        "population/births_interval": births,
-                        "genome/median_len": q_len[3],
-                    })
+                    wandb_logger.log_cycle_metrics(start, log_interval, stats)
 
                 hash_vals = pop.genome_hash
 
@@ -450,6 +426,17 @@ class Model:
                     'q_len': q_len,
                     'snapshot': snapshot
                 }
+                
+                if use_wandb:
+                    wandb_logger.log_snapshot_and_diversity(cycle_num, snapshot, self.cfg)
+                    
+                    if cycle_num % 10000 == 0 or cycle_num == total_cycles:
+                        wandb_logger.log_frequency_reports(
+                            cycle_num, snapshot, 
+                            global_self_replicating_genomes, 
+                            global_fertile_genomes, 
+                            output_dir
+                        )
                 
                 # Stack has_child to stats as well
                 if 'has_child' in stats:
@@ -494,7 +481,7 @@ class Model:
             traceback.print_exc()
 
         if use_wandb:
-            wandb.finish()
+            wandb_logger.finish_wandb()
             
         if toy_log_file is not None:
             toy_log_file.close()

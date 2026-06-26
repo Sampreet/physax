@@ -6,7 +6,11 @@ from physax.model import Model
 from physax.agent import Agent
 from physax.visualization import generate_all_visualizations
 import argparse
+from pathlib import Path
+from datetime import datetime
 import os
+from dotenv import load_dotenv
+import numpy as np
 
 print('device:', jax.devices()[0].platform)
 
@@ -18,6 +22,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_interval', type=int, default=50)
     parser.add_argument('--toy', action='store_true', help='Run a very small toy scenario for debugging')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for the simulation')
+    parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
     args = parser.parse_args()
 
     if args.toy:
@@ -25,30 +30,24 @@ if __name__ == "__main__":
         cfg = make_config(
             pop_size=32,
             initial_pop=1,
-            max_genome_len=128
+            max_genome_len=128,
+            seed=args.seed
         )
-        args.total_cycles = 300
+        args.total_cycles = 50
         log_interval = 1
     else:
         cfg = make_config(
             pop_size=args.pop_size,
             initial_pop=args.initial_pop,
+            seed=args.seed
         )
         log_interval = args.log_interval
 
-    from pathlib import Path
-    from datetime import datetime
+
     
     # Read base path from .env if it exists
-    base_path = Path("output")
-    env_file = Path(".env")
-    if env_file.exists():
-        with open(env_file, "r") as f:
-            for line in f:
-                if line.startswith("BASE_PATH="):
-                    val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                    base_path = Path(val)
-                    break
+    load_dotenv()
+    base_path = Path(os.getenv("BASE_PATH", "output"))
         
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     path = base_path / f"run_{args.total_cycles}_cycles_seed_{args.seed}_{timestamp}"
@@ -62,7 +61,7 @@ if __name__ == "__main__":
             key,
             total_cycles=args.total_cycles,
             log_interval=log_interval,
-            use_wandb=False,
+            use_wandb=args.wandb,
             output_dir=str(path),
             toy_mode=args.toy
         )
@@ -82,7 +81,6 @@ if __name__ == "__main__":
         top_hashes = generate_all_visualizations(stats, path, cfg)
         
         from physax.model import global_self_replicating_genomes, global_fertile_genomes
-        import numpy as np
         
         all_genomes_dict = {f"{h[0]}_{h[1]}" if isinstance(h, tuple) else str(h): g for h, g in global_self_replicating_genomes.items()}
         if all_genomes_dict:

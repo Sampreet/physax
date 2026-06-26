@@ -8,3 +8,5 @@ __pycache__
 *.npz
 *.log
 .DS_Store
+.env
+wandb

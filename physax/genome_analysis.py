@@ -3,9 +3,52 @@ import numpy as np
 import matplotlib.pyplot as plt
 from physax.config import (
     Config, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD,
-    FAST_TRACK, SLOW_TRACK, PERCENTILES
+    FAST_TRACK, SLOW_TRACK, PERCENTILES, OP_NAMES
 )
 from collections import defaultdict
+
+def compute_diversity_stats(snap):
+    alive = snap['alive']
+    status = snap['status']
+    gest_times = snap['gestation_time']
+    hashes = snap['hash']
+    if hashes.ndim == 2:
+        hashes = (hashes[:, 0].astype(np.int64) << 32) | (hashes[:, 1].astype(np.uint32).astype(np.int64))
+
+    mask_sr = alive & (status == SELF_REPLICATING)
+    mask_f = alive & (status == FERTILE)
+    
+    stats_out = {}
+    
+    for label, mask in [('self_rep', mask_sr), ('fertile', mask_f)]:
+        if np.any(mask):
+            gests = gest_times[mask]
+            gests = gests[gests < 2000000000]
+            avg_gest = np.mean(gests) if len(gests) > 0 else np.nan
+            
+            h = hashes[mask]
+            uniq, counts = np.unique(h, return_counts=True)
+            total = int(np.sum(mask))
+            unique = int(len(uniq))
+            probs = counts / np.sum(counts)
+            shannon = float(-np.sum(probs * np.log(probs)))
+        else:
+            avg_gest = np.nan
+            total = 0
+            unique = 0
+            shannon = 0.0
+            
+        stats_out[f'avg_gest_{label}'] = avg_gest
+        stats_out[f'total_{label}'] = total
+        stats_out[f'unique_{label}'] = unique
+        stats_out[f'shannon_div_{label}'] = shannon
+        
+    return stats_out
+
+def format_genome(gen_arr, length):
+    genes = [int(x) for x in gen_arr[:length]]
+    names = [OP_NAMES.get(g, str(g)) for g in genes]
+    return f"[{', '.join(names)}]"
 
 def classify_genome(pop, cfg: Config):
     """
