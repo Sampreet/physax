@@ -64,24 +64,23 @@ def add_to_db(db: GenomeDB, pop: Agent, mask: jnp.ndarray, cfg: Config):
         found, idx = lax.fori_loop(0, 32, body_fn, (jnp.bool_(False), jnp.int32(-1)))
         return idx
     
-    target_indices = jax.vmap(find_slot)(pop.genome_hash)
-    valid = mask & (target_indices != -1)
+    add_indices = jax.vmap(find_slot)(pop.genome_hash)
     
-    safe_targets_for_match = jnp.where(valid, target_indices, jnp.arange(cfg.pop_size) + HASH_TABLE_SIZE + 1)
-    match_matrix = safe_targets_for_match[None, :] == safe_targets_for_match[:, None]
-    first_occurrence = jnp.argmax(match_matrix, axis=0) == jnp.arange(cfg.pop_size)
-    valid = valid & first_occurrence
+    # To avoid a race condition where multiple agents map to the same hash index 
+    # but some have to_add=False (overwriting the valid update with db.keys[idx]),
+    # we remap the invalid items to an out-of-bounds index and use mode='drop'.
+    # We also ignore items where find_slot returned -1 (DB full).
+    valid_mask = mask & (add_indices != -1)
+    safe_indices = jnp.where(valid_mask, add_indices, db.keys.shape[0])
     
-    safe_targets = jnp.where(valid, target_indices, HASH_TABLE_SIZE)
-    
-    new_keys = db.keys.at[safe_targets].set(pop.genome_hash)
-    new_statuses = db.statuses.at[safe_targets].set(pop.status)
-    new_gestations = db.gestations.at[safe_targets].set(pop.gestation_time)
-    new_child_genomes = db.child_genomes.at[safe_targets].set(pop.child)
-    new_child_lens = db.child_lens.at[safe_targets].set(pop.child_len)
-    
-    return GenomeDB(keys=new_keys, statuses=new_statuses, gestations=new_gestations, 
-                    child_genomes=new_child_genomes, child_lens=new_child_lens)
+    db = db._replace(
+        keys=db.keys.at[safe_indices].set(pop.genome_hash, mode='drop'),
+        statuses=db.statuses.at[safe_indices].set(pop.status, mode='drop'),
+        gestations=db.gestations.at[safe_indices].set(pop.gestation_time, mode='drop'),
+        child_genomes=db.child_genomes.at[safe_indices].set(pop.child, mode='drop'),
+        child_lens=db.child_lens.at[safe_indices].set(pop.child_len, mode='drop')
+    )
+    return db
 
 global_self_replicating_genomes = {}
 global_fertile_genomes = {}
