@@ -34,5 +34,5 @@ python show_cycle_genomes.py --cycle 100000 --status SELF_REPLICATING --folder r
 # decode genome from folder
 python decode_genome_illustration.py --folder run_100000_cycles_seed_54_2026-06-16_23-08 --hash 3427106465219753476
 
-
+python evaluate_genomes.py --folder run_200000_cycles_seed_54_2026-06-19_17-27 --cycle 190000 --num-genomes 20
 ```
