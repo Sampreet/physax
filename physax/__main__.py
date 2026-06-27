@@ -33,7 +33,7 @@ if __name__ == "__main__":
             max_genome_len=128,
             seed=args.seed
         )
-        args.total_cycles = 50
+        args.total_cycles = 500
         log_interval = 1
     else:
         cfg = make_config(

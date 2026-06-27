@@ -63,6 +63,20 @@ def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
         valid_gestations = gestations[gestations < 2147483647]
         if len(valid_gestations) > 0:
             wandb_dict["population/gestation_time_hist"] = wandb.Histogram(valid_gestations)
+            wandb_dict["population/avg_gestation_time"] = np.mean(valid_gestations)
+            
+        # 2.5 Per-class histograms and average gestation times
+        for label, status_val in [("self_rep", SELF_REPLICATING), ("fertile", FERTILE)]:
+            class_mask = alive_mask & (snapshot['status'] == status_val)
+            if np.any(class_mask):
+                c_lengths = snapshot['genome_len'][class_mask]
+                wandb_dict[f"population/genome_length_hist_{label}"] = wandb.Histogram(c_lengths)
+                
+                c_gestations = snapshot['gestation_time'][class_mask]
+                c_valid_gestations = c_gestations[c_gestations < 2147483647]
+                if len(c_valid_gestations) > 0:
+                    wandb_dict[f"population/gestation_time_hist_{label}"] = wandb.Histogram(c_valid_gestations)
+                    wandb_dict[f"population/avg_gestation_time_{label}"] = np.mean(c_valid_gestations)
             
         # 3. Agents in population split by classes
         statuses = snapshot['status'][alive_mask]
@@ -91,7 +105,7 @@ def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
     
     wandb.log(wandb_dict, step=cycle_num)
 
-def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_fertile, output_dir):
+def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_fertile, output_dir, cfg):
     from physax.genome_analysis import format_genome
     
     def format_decoded_genome(gen_arr, length):
@@ -173,6 +187,13 @@ def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_f
         return "\n".join(lines)
 
     def generate_report(genomes_dict, title):
+        import jax
+        import jax.numpy as jnp
+        import numpy as np
+        from physax.agent import Agent
+        from physax.config import UNCLASSIFIED, BLANK
+        from physax.genome_evaluator import run_batch_until_division
+        
         alive_hashes = snapshot['hash'][snapshot['alive']]
         if alive_hashes.ndim == 2:
             alive_hashes_64 = (alive_hashes[:, 0].astype(np.int64) << 32) | (alive_hashes[:, 1].astype(np.uint32).astype(np.int64))
@@ -191,28 +212,77 @@ def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_f
         report = f"# {title} (Cycle {cycle_num})\n\n"
         
         table_data = []
-        idx = 1
+        
+        # Collect valid genomes to evaluate
+        valid_genomes = []
         for h in top_40:
             freq = get_freq(h)
             if freq == 0: continue
             g = genomes_dict[h]
             g_len = int(np.sum(g != BLANK))
+            valid_genomes.append((h, freq, g, g_len))
             
-            mask = snapshot['alive'] & (snapshot['hash'][:, 0] == h[0]) & (snapshot['hash'][:, 1] == h[1])
-            gest = np.min(snapshot['gestation_time'][mask]) if np.any(mask) else "N/A"
+        if valid_genomes:
+            agents_list = []
+            for h, freq, g, g_len in valid_genomes:
+                p_genome = np.full(cfg.max_genome_len, BLANK, dtype=np.int32)
+                p_genome[:min(g_len, cfg.max_genome_len)] = g[:min(g_len, cfg.max_genome_len)]
+                p_agent = Agent.init_organism(
+                    jnp.array(p_genome, dtype=jnp.int32), 
+                    jnp.int32(g_len), jnp.int32(-1), jnp.int32(UNCLASSIFIED), jnp.int32(-1), cfg
+                )
+                agents_list.append(p_agent)
+                
+            agents_batch = jax.tree_util.tree_map(lambda *x: jnp.stack(x), *agents_list)
             
-            decoded_str = format_decoded_genome(g, g_len)
+            # Find max gestation time among these to set max_steps
+            max_gest = 100
+            for h, freq, g, g_len in valid_genomes:
+                mask = snapshot['alive'] & (snapshot['hash'][:, 0] == h[0]) & (snapshot['hash'][:, 1] == h[1])
+                gest = np.min(snapshot['gestation_time'][mask]) if np.any(mask) else 100
+                if gest != "N/A" and gest < 2000000000:
+                    max_gest = max(max_gest, int(gest))
             
-            # Markdown File Format
-            report += f"### Genome {idx}: {h[0]}_{h[1]}\n"
-            report += f"- **DB Gestation Time**: {gest} cycles\n\n"
-            report += "#### Parent Genome\n```\n" + decoded_str + "\n```\n\n"
-            report += "#### Child Genome\n```\n" + decoded_str + "\n```\n\n"
-            report += "---\n\n"
+            global_max_steps = (max_gest * cfg.steps_per_update) + 1000
+            keys_batch = jax.random.split(jax.random.PRNGKey(42), len(agents_list))
             
-            # Table format for wandb
-            table_data.append([str(h), freq, gest, decoded_str.replace('\n', '  ')])
-            idx += 1
+            # Run simulation
+            final_agents, final_steps, _, final_finished_steps = run_batch_until_division(agents_batch, jnp.int32(global_max_steps), keys_batch, cfg)
+            
+            final_agents_list = [jax.tree_util.tree_map(lambda x: x[i], final_agents) for i in range(len(agents_list))]
+            final_finished_steps_list = [int(final_finished_steps[i]) for i in range(len(agents_list))]
+            
+            idx = 1
+            for (h, freq, g, g_len), final_agent, recalc_steps in zip(valid_genomes, final_agents_list, final_finished_steps_list):
+                mask = snapshot['alive'] & (snapshot['hash'][:, 0] == h[0]) & (snapshot['hash'][:, 1] == h[1])
+                gest = np.min(snapshot['gestation_time'][mask]) if np.any(mask) else "N/A"
+                
+                decoded_str = format_decoded_genome(g, g_len)
+                
+                recalc_cycles = (recalc_steps + cfg.steps_per_update - 1) // cfg.steps_per_update if recalc_steps > 0 else 0
+                
+                report += f"### Genome {idx}: {h[0]}_{h[1]}\n"
+                report += f"- **DB Gestation Time**: {gest} cycles\n"
+                
+                if recalc_steps != -1:
+                    report += f"- **Recalculated Gestation Time**: {recalc_steps} steps (~{recalc_cycles} cycles)\n\n"
+                else:
+                    report += f"- **Recalculated Gestation Time**: DNF (Did not finish within {global_max_steps} steps)\n\n"
+                    
+                report += "#### Parent Genome\n```\n" + decoded_str + "\n```\n\n"
+                
+                if bool(final_agent.has_child):
+                    child_len = int(final_agent.child_len)
+                    child_genome = np.array(final_agent.child)
+                    decoded_child = format_decoded_genome(child_genome, child_len)
+                    report += "#### Child Genome\n```\n" + decoded_child + "\n```\n\n"
+                else:
+                    report += "#### Child Genome\n*(No child produced)*\n\n"
+                    
+                report += "---\n\n"
+                
+                table_data.append([str(h), freq, gest, decoded_str.replace('\n', '  ')])
+                idx += 1
         
         table = wandb.Table(columns=["Hash", "Frequency", "Gestation Time", "Genome"], data=table_data)
         return report, table

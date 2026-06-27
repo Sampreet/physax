@@ -435,7 +435,8 @@ class Model:
                             cycle_num, snapshot, 
                             global_self_replicating_genomes, 
                             global_fertile_genomes, 
-                            output_dir
+                            output_dir,
+                            self.cfg
                         )
                 
                 # Stack has_child to stats as well
