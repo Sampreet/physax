@@ -209,7 +209,7 @@ class Model:
         )
 
         # Determine execution routes based on genome classification
-        routes = get_execution_route(pop.status)
+        routes = get_execution_route(pop.status, self.cfg)
         is_fast = routes == FAST_TRACK
         is_slow = pop.alive & (routes == SLOW_TRACK)
 

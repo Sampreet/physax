@@ -127,7 +127,7 @@ class Config:
     initial_pop: int = 1
 
     steps_per_update: int = 34
-    copy_mutation_rate: float = 0.009
+    copy_mutation_rate: float = 0.03  # 0.009
     divide_mutation_rate: float = 0.0
     divide_insert_rate: float = 0.0013
     divide_delete_rate: float = 0.0013
@@ -136,6 +136,7 @@ class Config:
     min_proliferation_ratio: float = 0.80
 
     use_species_color: bool = True
+    caching: bool = True
 
 
 def make_config(**kwargs) -> Config:

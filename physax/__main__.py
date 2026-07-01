@@ -23,6 +23,7 @@ if __name__ == "__main__":
     parser.add_argument('--toy', action='store_true', help='Run a very small toy scenario for debugging')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for the simulation')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
+    parser.add_argument('--no-caching', dest='caching', action='store_false', help='Keep all genomes on the slow track all the time')
     args = parser.parse_args()
 
     if args.toy:
@@ -31,7 +32,8 @@ if __name__ == "__main__":
             pop_size=32,
             initial_pop=1,
             max_genome_len=128,
-            seed=args.seed
+            seed=args.seed,
+            caching=args.caching
         )
         args.total_cycles = 500
         log_interval = 1
@@ -39,7 +41,8 @@ if __name__ == "__main__":
         cfg = make_config(
             pop_size=args.pop_size,
             initial_pop=args.initial_pop,
-            seed=args.seed
+            seed=args.seed,
+            caching=args.caching
         )
         log_interval = args.log_interval
 

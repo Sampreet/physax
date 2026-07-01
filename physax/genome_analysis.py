@@ -91,13 +91,13 @@ def classify_genome(pop, cfg: Config):
     
     return new_status, new_gestation
 
-def get_execution_route(status):
+def get_execution_route(status, cfg):
     """
     Map statuses to execution routes.
     Fast track: SELF_REPLICATING, NON_FERTILE, FERTILE, NON_STANDARD
     Slow track: UNCLASSIFIED
     """
-    is_fast = status != UNCLASSIFIED
+    is_fast = (status != UNCLASSIFIED) & getattr(cfg, 'caching', True)
     return jnp.where(is_fast, jnp.int32(FAST_TRACK), jnp.int32(SLOW_TRACK))
 
 def compute_cycle_stats(pop, n_births, cfg: Config):
