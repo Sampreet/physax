@@ -24,7 +24,14 @@ if __name__ == "__main__":
     parser.add_argument('--seed', type=int, default=42, help='Random seed for the simulation')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
     parser.add_argument('--no-caching', dest='caching', action='store_false', help='Keep all genomes on the slow track all the time')
+    parser.add_argument('--no-compile-cache', dest='compile_cache', action='store_false', help='Disable the JAX persistent compilation cache')
     args = parser.parse_args()
+
+    # SS: persistent compilation cache so reruns skip recompilation; --no-compile-cache turns it off
+    if args.compile_cache:
+        jax.config.update("jax_compilation_cache_dir", "/home/eleni/.cache/jax")
+        jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
+        jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
 
     if args.toy:
         print("--- RUNNING IN TOY/DEBUG MODE ---")
@@ -47,11 +54,11 @@ if __name__ == "__main__":
         log_interval = args.log_interval
 
 
-    
+
     # Read base path from .env if it exists
     load_dotenv()
     base_path = Path(os.getenv("BASE_PATH", "output"))
-        
+
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M")
     path = base_path / f"run_{args.total_cycles}_cycles_seed_{args.seed}_{timestamp}"
     path.mkdir(parents=True, exist_ok=True)
@@ -82,9 +89,9 @@ if __name__ == "__main__":
 
     if len(stats) > 0:
         top_hashes = generate_all_visualizations(stats, path, cfg)
-        
+
         from physax.model import global_self_replicating_genomes, global_fertile_genomes
-        
+
         all_genomes_dict = {f"{h[0]}_{h[1]}" if isinstance(h, tuple) else str(h): g for h, g in global_self_replicating_genomes.items()}
         if all_genomes_dict:
             np.savez(str(path / "self_replicating_genomes_details.npz"), **all_genomes_dict)
@@ -96,7 +103,7 @@ if __name__ == "__main__":
             print(f"Saved {len(fertile_genomes_dict)} fertile genomes to fertile_genomes_details.npz")
     else:
         print("No stats collected, skipping plots and saves.")
-    
+
     if args.toy:
         print("\n--- TOY DEBUG LOG ---")
         for chunk in stats:
@@ -105,10 +112,10 @@ if __name__ == "__main__":
             b = chunk['births']
             status_arr = chunk['snapshot']['status']
             alive_arr = chunk['snapshot']['alive']
-            
+
             # Count statuses among alive
             status_counts = {}
             for st in [0, 1, 2, 3, 4]:
                 status_counts[st] = int(jnp.sum((status_arr == st) & alive_arr))
-                
+
             print(f"Cycle {cyc}: Pop={pop_cnt}, Births={b}, Status Breakdown (UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD)={status_counts}")
