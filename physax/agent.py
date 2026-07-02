@@ -31,6 +31,12 @@ class Agent(NamedTuple):
     read_from_child: jnp.ndarray
     status: jnp.ndarray
     genome_hash: jnp.ndarray
+    # Lineage tracking: unique id, id of the organism that spawned this one,
+    # and the cycle it was born on. Assigned by the Model (init/placement),
+    # not by init_organism, so they survive the parse-from-genome step.
+    id: jnp.ndarray
+    parent_id: jnp.ndarray
+    birth_cycle: jnp.ndarray
 
     @property
     def can_execute(self) -> jnp.ndarray:
@@ -77,6 +83,10 @@ class Agent(NamedTuple):
             read_from_child=jnp.bool_(False),
             status=jnp.int32(UNCLASSIFIED),
             genome_hash=jnp.zeros(2, dtype=jnp.int32),
+            # Lineage (-1 = unassigned / no parent)
+            id=jnp.int32(-1),
+            parent_id=jnp.int32(-1),
+            birth_cycle=jnp.int32(-1),
         )
 
     @staticmethod

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -132,9 +133,17 @@ class Model:
             return state._replace(alive=alive_mask_val)
 
         pop = jax.vmap(init_one)(jnp.arange(self.cfg.pop_size), is_alive)
+
+        # Seed lineage: give every slot a unique id in [0, pop_size). Births in
+        # later cycles draw ids >= pop_size (see cycle_step), so ids never collide.
+        pop = pop._replace(
+            id=jnp.arange(self.cfg.pop_size, dtype=jnp.int32),
+            parent_id=jnp.full(self.cfg.pop_size, -1, dtype=jnp.int32),
+            birth_cycle=jnp.zeros(self.cfg.pop_size, dtype=jnp.int32),
+        )
         return pop
 
-    def _place_children_on_grid(self, pop: Agent, has_child: jnp.ndarray, child_states: Agent, key) -> Agent:
+    def _place_children_on_grid(self, pop: Agent, has_child: jnp.ndarray, child_states: Agent, key, cycle_idx) -> tuple[Agent, jnp.ndarray, jnp.ndarray]:
         """Calculate spatial placement on a 2D toroidal grid using the OldestNurse algorithm."""
         grid_side = int(np.ceil(np.sqrt(self.cfg.pop_size)))
         W = grid_side
@@ -170,18 +179,33 @@ class Model:
             neighbor_indices_safe, best_neighbor_local_idx[:, None], axis=1
         ).squeeze(1)
 
-        # Place children using gather approach (avoids scatter conflicts with duplicates)
-        # For each cell j, check if any birthing parent targets it
-        all_cells = jnp.arange(self.cfg.pop_size)
-        # targets_match[j, k] = True if parent k targets cell j AND has_child[k]
-        targets_match = (target_indices[None, :] == all_cells[:, None]) & has_child[None, :]
-        # any_child_placed[j] = True if any parent places a child at cell j
-        any_child_placed = jnp.any(targets_match, axis=1)
-        # source_parent[j] = index of (first) parent placing a child at cell j
-        source_parent = jnp.argmax(targets_match.astype(jnp.int32), axis=1)
+        # Place children with an O(N) scatter instead of an O(N^2) match matrix.
+        # Each birthing parent competes for its target cell; when several parents
+        # target the same cell the lowest parent index wins (this reproduces the
+        # tie-break of the old argmax-over-parents approach).
+        NO_PARENT = jnp.int32(self.cfg.pop_size)
+        parent_ids = jnp.arange(self.cfg.pop_size, dtype=jnp.int32)
+        contrib = jnp.where(has_child, parent_ids, NO_PARENT)   # non-birthing parents don't compete
+        winner = jnp.full(self.cfg.pop_size, NO_PARENT, dtype=jnp.int32)
+        winner = winner.at[target_indices].min(contrib)        # segmented scatter-min, O(N)
 
-        # Gather child states from source parents
+        # any_child_placed[j] = a child was placed at cell j; source_parent[j] = its parent
+        any_child_placed = winner < NO_PARENT
+        source_parent = jnp.where(any_child_placed, winner, 0)  # clamp unplaced cells to a valid index
+
+        # Gather child states from the winning parents
         gathered_children = jax.tree.map(lambda x: x[source_parent], child_states)
+
+        # Assign lineage to each placed child. The child in cell j gets a globally
+        # unique id (cycle_idx * pop_size + j) and records the id of its parent
+        # (the organism at source_parent[j]). Cells with no birth keep pop's values.
+        new_ids = cycle_idx * self.cfg.pop_size + jnp.arange(self.cfg.pop_size, dtype=jnp.int32)
+        parent_ids_for_cell = pop.id[source_parent]
+        gathered_children = gathered_children._replace(
+            id=new_ids,
+            parent_id=parent_ids_for_cell,
+            birth_cycle=jnp.full(self.cfg.pop_size, cycle_idx, dtype=jnp.int32),
+        )
 
         # Conditionally replace: cell j gets child state if a child was placed, else keeps current
         new_pop = jax.tree.map(
@@ -191,10 +215,17 @@ class Model:
             ),
             gathered_children, pop
         )
-        return new_pop, any_child_placed
+        # Birth edges for genealogy (-1 where no child was placed this cycle)
+        child_id_edge = jnp.where(any_child_placed, new_ids, jnp.int32(-1))
+        parent_id_edge = jnp.where(any_child_placed, parent_ids_for_cell, jnp.int32(-1))
+        return new_pop, child_id_edge, parent_id_edge
 
-    def cycle_step(self, pop: Agent, db: GenomeDB, key) -> tuple[Agent, GenomeDB, dict]:
-        """Execute one cycle: step all organisms, handle births."""
+    def cycle_step(self, pop: Agent, db: GenomeDB, cycle_idx, key) -> tuple[Agent, GenomeDB, dict]:
+        """Execute one cycle: step all organisms, handle births.
+
+        cycle_idx is a monotonically increasing counter (starts at 1) used to mint
+        unique child ids and to stamp birth cycles for lineage tracking.
+        """
 
         k_exec, k_birth, k_place = random.split(key, 3)
 
@@ -287,9 +318,9 @@ class Model:
         )
 
         # 5. Spatial Placement Phase
-        pop_new, overwritten_mask = self._place_children_on_grid(pop, has_child, child_states, k_place)
-        
-        pop = pop_new
+        pop, child_id_edge, parent_id_edge = self._place_children_on_grid(
+            pop, has_child, child_states, k_place, cycle_idx
+        )
 
         # 5. Cleanup Phase
         blank_child = jnp.full(self.cfg.max_genome_len, BLANK, dtype=jnp.int32)
@@ -315,9 +346,16 @@ class Model:
         # Stats
         stats = compute_cycle_stats(pop, n_births, self.cfg)
         stats['has_child'] = has_child
+        # Genealogy edge list for this cycle: for each grid cell, the id of the
+        # child born there and the id of its parent (-1 where no birth). Stacked
+        # over the scan into (log_interval, pop_size) arrays.
+        stats['child_id'] = child_id_edge
+        stats['parent_id'] = parent_id_edge
         return pop, db, stats
 
-    def run_simulation(self, key, total_cycles, log_interval=10000, use_wandb=False, output_dir="output", toy_mode=False):
+    def run_simulation(self, key, total_cycles, log_interval=10000, use_wandb=False,
+                       output_dir="output", toy_mode=False,
+                       track_lineage=False, lineage_dir="lineage"):
         """Run the simulation for total_cycles."""
         print(f"=== JAX PHYSIS SIMULATION ===")
         print(f"Population capacity: {self.cfg.pop_size}, Initial: {self.cfg.initial_pop}")
@@ -338,14 +376,21 @@ class Model:
         pop = self.init_population(k1)
         db = init_genome_db(self.cfg)
 
+        # cycle_idx starts at 1 so the first cycle's births get ids >= pop_size,
+        # never colliding with the seed ids [0, pop_size) set in init_population.
+        cycle_idx = jnp.int32(1)
+
         def scan_cycles(state, keys):
             def step(carry, k):
-                p, d = carry
-                new_p, new_d, stats = self.cycle_step(p, d, k)
-                return (new_p, new_d), stats
+                p, d, cyc = carry
+                new_p, new_d, stats = self.cycle_step(p, d, cyc, k)
+                return (new_p, new_d, cyc + 1), stats
             return lax.scan(step, state, keys)
 
         jit_scan = jax.jit(scan_cycles)
+
+        if track_lineage:
+            os.makedirs(lineage_dir, exist_ok=True)
 
         n_chunks = total_cycles // log_interval
         all_stats = []
@@ -393,7 +438,7 @@ class Model:
                 end = (chunk + 1) * log_interval
                 chunk_keys = cycle_keys[start:end]
 
-                (pop, db), stats = jit_scan((pop, db), chunk_keys)
+                (pop, db, cycle_idx), stats = jit_scan((pop, db, cycle_idx), chunk_keys)
                 (pop, db) = jax.block_until_ready((pop, db))
 
                 cycle_num = end
@@ -401,10 +446,25 @@ class Model:
                 births = int(jnp.sum(stats['births']))
                 q_len = stats['q_genome_len'][-1]
 
+                # SS: sizes of the different genome parts, medianed over the living population.
+                # Median (the 50th percentile) matches genome/median_len logged below.
+                def _alive_median(vals):
+                    return jnp.nanpercentile(jnp.where(pop.alive, vals, jnp.nan), 50)
+
+                # avg op-codes (micro-ops) per instruction, per organism
+                ops_per_instr = jnp.sum(pop.instruction_lengths, axis=1) / jnp.maximum(pop.n_instructions, 1)
+                med_registers = _alive_median(pop.n_ses)                 # how many registers / state elements
+                med_instructions = _alive_median(pop.n_instructions)     # how many instructions
+                med_ops_per_instr = _alive_median(ops_per_instr)         # how many op-codes per instruction
+
                 print(f"Cycle {cycle_num}: Pop={pop_size}, Births={births}, Percentiles={q_len}")
 
                 if use_wandb:
                     wandb_logger.log_cycle_metrics(start, log_interval, stats)
+                    # SS: median sizes of the genome's structural parts, logged once per chunk.
+                    wandb_logger.log_genome_part_medians(
+                        cycle_num, med_registers, med_instructions, med_ops_per_instr
+                    )
 
                 hash_vals = pop.genome_hash
 
@@ -416,8 +476,29 @@ class Model:
                     'executed_instructions': np.array(pop.executed_instructions),
                     'age': np.array(pop.age),
                     'hash': np.array(hash_vals),
-                    'status': np.array(pop.status)
+                    'status': np.array(pop.status),
+                    'id': np.array(pop.id),
+                    'parent_id': np.array(pop.parent_id),
+                    'birth_cycle': np.array(pop.birth_cycle),
+                    # Genomes of the current population, so a lineage's genotype can
+                    # be diffed against an ancestor sampled at an earlier snapshot.
+                    'genome': np.array(pop.genome),
                 }
+
+                # Persist the genealogy edge list for this chunk. Only the cells that
+                # actually produced a child are kept, so the file is a compact list of
+                # (birth cycle, child id, parent id) rows rather than the dense grid.
+                if track_lineage:
+                    child_ids = np.array(stats['child_id'])      # (log_interval, pop_size)
+                    parent_ids = np.array(stats['parent_id'])
+                    rows, cols = np.nonzero(child_ids >= 0)
+                    born_cycle = (start + 1) + rows               # cycle_idx of each birth
+                    np.savez_compressed(
+                        f"{lineage_dir}/edges_{cycle_num}.npz",
+                        birth_cycle=born_cycle.astype(np.int64),
+                        child_id=child_ids[rows, cols].astype(np.int64),
+                        parent_id=parent_ids[rows, cols].astype(np.int64),
+                    )
 
                 chunk_rec = {
                     'cycle': cycle_num,

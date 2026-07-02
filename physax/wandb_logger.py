@@ -44,6 +44,15 @@ def log_cycle_metrics(start, log_interval, stats):
             "genome/len_q50": q_len_arr[i, 3],
         }, step=step)
 
+def log_genome_part_medians(cycle_num, med_registers, med_instructions, med_ops_per_instr):
+    # SS: median over the living population of the genome's structural part sizes:
+    # registers/state elements, instructions, and op-codes per instruction.
+    wandb.log({
+        "genome/registers_median": med_registers,
+        "genome/instructions_median": med_instructions,
+        "genome/ops_per_instruction_median": med_ops_per_instr,
+    }, step=cycle_num)
+
 def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
     from physax.genome_analysis import compute_diversity_stats
     from physax.visualization import draw_3panel_frame

@@ -20,9 +20,17 @@ if __name__ == "__main__":
     parser.add_argument('--initial_pop', type=int, default=1000)
     parser.add_argument('--total_cycles', type=int, default=50_000)
     parser.add_argument('--log_interval', type=int, default=50)
+    parser.add_argument('--max_micro_ops', type=int, default=16,
+                        help="max micro-ops per compound instruction; caps instruction length "
+                             "and sets the inner VM scan length (dominant runtime cost). "
+                             "Ancestor's longest instruction is 8; 16 gives headroom at ~2x the speed of 32.")
     parser.add_argument('--toy', action='store_true', help='Run a very small toy scenario for debugging')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for the simulation')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
+    parser.add_argument('--track_lineage', action='store_true',
+                        help="save per-chunk genealogy edge lists (child_id, parent_id) for lineage analysis")
+    parser.add_argument('--lineage_dir', type=str, default="lineage",
+                        help="directory to write lineage edge files into (with --track_lineage)")
     parser.add_argument('--no-caching', dest='caching', action='store_false', help='Keep all genomes on the slow track all the time')
     parser.add_argument('--no-compile-cache', dest='compile_cache', action='store_false', help='Disable the JAX persistent compilation cache')
     args = parser.parse_args()
@@ -39,6 +47,7 @@ if __name__ == "__main__":
             pop_size=32,
             initial_pop=1,
             max_genome_len=128,
+            max_micro_ops=args.max_micro_ops,
             seed=args.seed,
             caching=args.caching
         )
@@ -48,10 +57,12 @@ if __name__ == "__main__":
         cfg = make_config(
             pop_size=args.pop_size,
             initial_pop=args.initial_pop,
+            max_micro_ops=args.max_micro_ops,
             seed=args.seed,
             caching=args.caching
         )
         log_interval = args.log_interval
+    print(f"max_micro_ops: {cfg.max_micro_ops}")
 
 
 
@@ -73,7 +84,9 @@ if __name__ == "__main__":
             log_interval=log_interval,
             use_wandb=args.wandb,
             output_dir=str(path),
-            toy_mode=args.toy
+            toy_mode=args.toy,
+            track_lineage=args.track_lineage,
+            lineage_dir=args.lineage_dir,
         )
     except Exception as e:
         print(f"Unhandled exception in main: {e}")
