@@ -226,14 +226,24 @@ class Model:
         return new_pop, child_id_edge, parent_id_edge
 
     def cycle_step(self, pop: Agent, db: GenomeDB, cycle_idx, key) -> tuple[Agent, GenomeDB, dict]:
-        """Execute one cycle: step all organisms, handle births.
+        """Execute one cycle using the JAX VM interpreter (reference path).
 
         cycle_idx is a monotonically increasing counter (starts at 1) used to mint
-        unique child ids and to stamp birth cycles for lineage tracking.
+        unique child ids and to stamp birth cycles for lineage tracking. Composes
+        the three phases; _post_vm re-splits `key` so the RNG stream matches the
+        kernel path exactly.
         """
+        pop, is_slow = self._pre_vm(pop, db)
+        k_exec = random.split(key, 3)[0]
+        pop = self._vm_jax(pop, is_slow, k_exec)
+        return self._post_vm(pop, db, cycle_idx, key, is_slow)
 
-        k_exec, k_birth, k_place = random.split(key, 3)
-
+    def _pre_vm(self, pop: Agent, db: GenomeDB) -> tuple[Agent, jnp.ndarray]:
+        """Cycle phase before the VM: DB cache lookup and the fast-track step.
+        Returns the updated population and the slow-track mask. Split out so the
+        VM between _pre_vm and _post_vm can be either the JAX interpreter or the
+        CUDA kernel. Uses no randomness, so it needs no key.
+        """
         # 0. Check DB for unclassified/new agents
         needs_lookup = pop.alive & (pop.status == UNCLASSIFIED)
         found, db_idx = lookup_db(pop.genome_hash, db)
@@ -262,31 +272,50 @@ class Model:
             child=jnp.where(fast_divide[:, None], db.child_genomes[div_db_idx], pop.child),
             child_len=jnp.where(fast_divide, db.child_lens[div_db_idx], pop.child_len),
         )
-        
-        # Slow Track: UNCLASSIFIED, FERTILE, NON_STANDARD
+        return pop, is_slow
+
+    def _vm_jax(self, pop: Agent, is_slow: jnp.ndarray, k_exec) -> Agent:
+        """Slow-track VM via the JAX interpreter: run the VM on the whole
+        population and keep the result only for is_slow agents. This is the
+        reference path that the CUDA kernel (VMRunner) reproduces."""
         exec_keys = random.split(k_exec, self.cfg.pop_size)
-        
-        # Process entire population natively without max batch limits.
-        # We run VM on all agents but only apply updates to `is_slow` ones.
         p_exec = jax.vmap(self.vm.update)(pop, exec_keys)
-        
-        pop = jax.tree.map(
+        return jax.tree.map(
             lambda new, old: jnp.where(is_slow.reshape((-1,) + (1,) * (new.ndim - 1)), new, old),
             p_exec, pop
         )
-        
+
+    def _post_vm(self, pop: Agent, db: GenomeDB, cycle_idx, key, is_slow: jnp.ndarray,
+                 do_collect: bool = True) -> tuple[Agent, GenomeDB, dict]:
+        """Cycle phases after the VM: slow-track aging, classification, birth,
+        spatial placement, cleanup, and stats. Runs identically whether the VM
+        was the JAX interpreter or the CUDA kernel. Only k_birth/k_place are used
+        here (k_exec drove the VM), but we re-split the same key so the RNG stream
+        is identical to the original single-function cycle_step.
+
+        do_collect gates the two genome-collection callbacks. They only populate
+        the global self-replicator/fertile dictionaries used for end-of-run
+        reports -- they do NOT affect pop/db -- but each `jax.debug.callback`
+        transfers the full genome array to host and stalls the pipeline (~100 ms/
+        cycle at pop 16384). It is a *static* flag so that when False the callback
+        nodes are compiled out entirely (no host transfer), letting the Python-
+        driven kernel loop collect only every N cycles. pop/db stay bitwise-
+        identical regardless of its value."""
+        k_exec, k_birth, k_place = random.split(key, 3)
+
         # 2. Aging Phase for slow track
         pop = pop._replace(age=jnp.where(pop.alive & is_slow, pop.age + 1, pop.age))
 
         # 3. Classification Phase
         new_status, new_gestation = classify_genome(pop, self.cfg)
         
-        newly_self_rep = pop.alive & (new_status == SELF_REPLICATING) & (pop.status != SELF_REPLICATING)
-        jax.debug.callback(collect_self_replicating, pop.genome_hash, pop.genome, newly_self_rep)
-        
-        newly_fertile = pop.alive & (new_status == FERTILE) & (pop.status != FERTILE)
-        jax.debug.callback(collect_fertile, pop.genome_hash, pop.genome, newly_fertile)
-        
+        if do_collect:
+            newly_self_rep = pop.alive & (new_status == SELF_REPLICATING) & (pop.status != SELF_REPLICATING)
+            jax.debug.callback(collect_self_replicating, pop.genome_hash, pop.genome, newly_self_rep)
+
+            newly_fertile = pop.alive & (new_status == FERTILE) & (pop.status != FERTILE)
+            jax.debug.callback(collect_fertile, pop.genome_hash, pop.genome, newly_fertile)
+
         just_classified = pop.alive & (new_status != UNCLASSIFIED) & (pop.status == UNCLASSIFIED)
         pop = pop._replace(status=new_status, gestation_time=new_gestation)
         
@@ -389,8 +418,14 @@ class Model:
     def run_simulation(self, key, total_cycles, log_interval=10000, use_wandb=False,
                        output_dir="output", toy_mode=False,
                        track_lineage=False, lineage_dir="lineage",
-                       snapshot_interval=0):
-        """Run the simulation for total_cycles."""
+                       snapshot_interval=0, use_kernel=False, collect_interval=1):
+        """Run the simulation for total_cycles.
+
+        use_kernel selects the CUDA VM kernel (physax.vm_kernel.VMRunner) instead
+        of the JAX interpreter for the slow-track execution. The kernel cannot run
+        inside lax.scan/jit, so that path drives cycles from Python: the pre- and
+        post-VM halves stay jitted, with the kernel launched between them.
+        """
         print(f"=== JAX PHYSIS SIMULATION ===")
         print(f"Population capacity: {self.cfg.pop_size}, Initial: {self.cfg.initial_pop}")
         print(f"Steps per update: {self.cfg.steps_per_update}")
@@ -422,6 +457,39 @@ class Model:
             return lax.scan(step, state, keys)
 
         jit_scan = jax.jit(scan_cycles)
+
+        # Kernel path: the CUDA VM can't run inside jit/lax.scan, so drive cycles
+        # from Python with the pre/post halves jitted and the kernel in between.
+        # Produces the same per-chunk stacked stats as jit_scan.
+        if use_kernel:
+            from physax.vm_kernel import VMRunner
+            vm_runner = VMRunner(self.cfg)
+            pre_jit = jax.jit(self._pre_vm)
+            # do_collect (arg index 5) is static so the genome-collection callbacks
+            # compile out entirely on cycles where we skip them (no host transfer).
+            post_jit = jax.jit(self._post_vm, static_argnums=(5,))
+
+            def run_chunk(pop, db, cycle_idx, chunk_keys, base_cycle):
+                stats_list = []
+                for c in range(chunk_keys.shape[0]):
+                    k = chunk_keys[c]
+                    cyc_num = base_cycle + c + 1
+                    # Collect self-replicator/fertile genomes only every
+                    # collect_interval cycles (and on the very last cycle): the
+                    # per-cycle host transfer dominates runtime and the collection
+                    # is auxiliary (does not affect pop/db).
+                    do_collect = (cyc_num % collect_interval == 0) or (cyc_num == total_cycles)
+                    pop, is_slow = pre_jit(pop, db)
+                    pop = vm_runner.run(pop, is_slow)            # mutates pop in place
+                    pop, db, stats = post_jit(pop, db, cycle_idx, k, is_slow, do_collect)
+                    cycle_idx = cycle_idx + 1
+                    stats_list.append(stats)
+                stats = jax.tree.map(lambda *xs: jnp.stack(xs), *stats_list)
+                return pop, db, cycle_idx, stats
+            print(f"VM backend: CUDA kernel (physax.vm_kernel.VMRunner); "
+                  f"genome collection every {collect_interval} cycles")
+        else:
+            print("VM backend: JAX interpreter")
 
         if track_lineage:
             os.makedirs(lineage_dir, exist_ok=True)
@@ -472,7 +540,10 @@ class Model:
                 end = (chunk + 1) * log_interval
                 chunk_keys = cycle_keys[start:end]
 
-                (pop, db, cycle_idx), stats = jit_scan((pop, db, cycle_idx), chunk_keys)
+                if use_kernel:
+                    pop, db, cycle_idx, stats = run_chunk(pop, db, cycle_idx, chunk_keys, start)
+                else:
+                    (pop, db, cycle_idx), stats = jit_scan((pop, db, cycle_idx), chunk_keys)
                 (pop, db) = jax.block_until_ready((pop, db))
 
                 cycle_num = end

@@ -8,6 +8,7 @@ dependencies = [
     "imageio[ffmpeg]",
     "jax[cuda12]",
     "matplotlib",
+    "numba-cuda>=0.24.0",
     "numpy",
     "pillow",
     "torch>=2.5.1",
