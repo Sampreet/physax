@@ -13,8 +13,13 @@ import physax.wandb_logger as wandb_logger
 from physax.config import *
 from physax.agent import Agent
 from physax.virtual_machine import VirtualMachine
-from physax.genome_analysis import classify_genome, get_execution_route, compute_cycle_stats
+from physax.genome_analysis import classify_genome, get_execution_route, compute_cycle_stats, compute_language_stats
+from physax.genome_evaluator import compute_mutational_robustness
 from typing import NamedTuple
+
+# Percentiles logged per chunk for each genome-part distribution (registers, instructions,
+# op-codes per instruction). Wider than a lone median so wandb shows the spread and tails.
+GENOME_PART_PCTS = jnp.array([5, 25, 50, 75, 95])
 
 class GenomeDB(NamedTuple):
     keys: jnp.ndarray
@@ -353,9 +358,38 @@ class Model:
         stats['parent_id'] = parent_id_edge
         return pop, db, stats
 
+    def _robustness_of_self_replicators(self, pop, cycle_num, n_genomes=16, n_mutants=32):
+        """Sample up to n_genomes living self-replicators and estimate their
+        point-mutational robustness via genome_evaluator. Returns None if there
+        are no living self-replicators. Kept off the per-chunk path -- it re-runs
+        n_genomes * n_mutants genomes through the VM -- so callers gate it on the
+        infrequent report cadence."""
+        sr_mask = np.array(pop.alive) & (np.array(pop.status) == SELF_REPLICATING)
+        idx = np.nonzero(sr_mask)[0]
+        if idx.size == 0:
+            return None
+
+        if idx.size > n_genomes:
+            idx = np.random.default_rng(cycle_num).choice(idx, size=n_genomes, replace=False)
+
+        gests = np.array(pop.gestation_time)[idx]
+        finite = gests[gests < 2147483647]
+        max_gest = int(finite.max()) if finite.size > 0 else 100
+        # Step budget with headroom so mutants that replicate a little slower than
+        # their parent still finish within it (mirrors log_frequency_reports).
+        max_steps = max_gest * self.cfg.steps_per_update * 2 + 1000
+
+        genomes = jnp.array(np.array(pop.genome)[idx])
+        genome_lens = jnp.array(np.array(pop.genome_len)[idx])
+        return compute_mutational_robustness(
+            genomes, genome_lens, max_steps, random.PRNGKey(cycle_num), self.cfg,
+            n_mutants=n_mutants,
+        )
+
     def run_simulation(self, key, total_cycles, log_interval=10000, use_wandb=False,
                        output_dir="output", toy_mode=False,
-                       track_lineage=False, lineage_dir="lineage"):
+                       track_lineage=False, lineage_dir="lineage",
+                       snapshot_interval=0):
         """Run the simulation for total_cycles."""
         print(f"=== JAX PHYSIS SIMULATION ===")
         print(f"Population capacity: {self.cfg.pop_size}, Initial: {self.cfg.initial_pop}")
@@ -446,25 +480,34 @@ class Model:
                 births = int(jnp.sum(stats['births']))
                 q_len = stats['q_genome_len'][-1]
 
-                # SS: sizes of the different genome parts, medianed over the living population.
-                # Median (the 50th percentile) matches genome/median_len logged below.
-                def _alive_median(vals):
-                    return jnp.nanpercentile(jnp.where(pop.alive, vals, jnp.nan), 50)
+                # SS: distribution (not just the median) of each genome part over the living
+                # population, so wandb shows spread -- a flat median can still hide a shifting
+                # tail as variants sweep. GENOME_PART_PCTS picks the percentiles to log.
+                def _alive_pcts(vals):
+                    return jnp.nanpercentile(jnp.where(pop.alive, vals, jnp.nan), GENOME_PART_PCTS)
 
                 # avg op-codes (micro-ops) per instruction, per organism
                 ops_per_instr = jnp.sum(pop.instruction_lengths, axis=1) / jnp.maximum(pop.n_instructions, 1)
-                med_registers = _alive_median(pop.n_ses)                 # how many registers / state elements
-                med_instructions = _alive_median(pop.n_instructions)     # how many instructions
-                med_ops_per_instr = _alive_median(ops_per_instr)         # how many op-codes per instruction
+                q_registers = _alive_pcts(pop.n_ses)              # how many registers / state elements
+                q_instructions = _alive_pcts(pop.n_instructions)  # how many instructions
+                q_ops_per_instr = _alive_pcts(ops_per_instr)      # how many op-codes per instruction
 
                 print(f"Cycle {cycle_num}: Pop={pop_size}, Births={births}, Percentiles={q_len}")
 
                 if use_wandb:
                     wandb_logger.log_cycle_metrics(start, log_interval, stats)
-                    # SS: median sizes of the genome's structural parts, logged once per chunk.
-                    wandb_logger.log_genome_part_medians(
-                        cycle_num, med_registers, med_instructions, med_ops_per_instr
+                    # SS: percentile spread of the genome's structural parts, logged once per chunk.
+                    wandb_logger.log_genome_part_distribution(
+                        cycle_num, GENOME_PART_PCTS, q_registers, q_instructions, q_ops_per_instr
                     )
+                    # SS: language properties -- the genotype (raw tokens) and the
+                    # genotype->phenotype mapping (each genome's self-defined instruction
+                    # set). Scalars every chunk; opcode/symbol bar charts on the heavier
+                    # frequency-report cadence.
+                    lang_stats = compute_language_stats(pop, self.cfg)
+                    if lang_stats is not None:
+                        log_hist = (cycle_num % 10000 == 0 or cycle_num == total_cycles)
+                        wandb_logger.log_language_properties(cycle_num, lang_stats, log_hist=log_hist)
 
                 hash_vals = pop.genome_hash
 
@@ -500,6 +543,33 @@ class Model:
                         parent_id=parent_ids[rows, cols].astype(np.int64),
                     )
 
+                # Persist a population genome snapshot on a coarser cadence than
+                # the edge files, so lineage ids can be mapped back to genotypes
+                # post-hoc (analysis.index_snapshot_genomes / conservation_map).
+                # The genome grid is large, so this is gated on snapshot_interval
+                # (a multiple of log_interval) rather than saved every chunk.
+                if (track_lineage and snapshot_interval > 0
+                        and (cycle_num % snapshot_interval == 0 or cycle_num == total_cycles)):
+                    np.savez_compressed(
+                        f"{lineage_dir}/snapshot_{cycle_num}.npz",
+                        cycle=np.int64(cycle_num),
+                        id=snapshot['id'].astype(np.int64),
+                        parent_id=snapshot['parent_id'].astype(np.int64),
+                        birth_cycle=snapshot['birth_cycle'].astype(np.int64),
+                        alive=snapshot['alive'],
+                        status=snapshot['status'],
+                        genome=snapshot['genome'],
+                        genome_len=snapshot['genome_len'],
+                        gestation_time=snapshot['gestation_time'],
+                        hash=snapshot['hash'],
+                        # per-position executed mask (pop_size, max_genome_len): lets
+                        # analysis separate functional (executed) tape positions from
+                        # junk, to test whether genetic diversity is concentrated in
+                        # non-executed / non-functional positions.
+                        executed=np.array(pop.executed),
+                        executed_instructions=snapshot['executed_instructions'],
+                    )
+
                 chunk_rec = {
                     'cycle': cycle_num,
                     'pop_size': pop_size,
@@ -513,12 +583,19 @@ class Model:
                     
                     if cycle_num % 10000 == 0 or cycle_num == total_cycles:
                         wandb_logger.log_frequency_reports(
-                            cycle_num, snapshot, 
-                            global_self_replicating_genomes, 
-                            global_fertile_genomes, 
+                            cycle_num, snapshot,
+                            global_self_replicating_genomes,
+                            global_fertile_genomes,
                             output_dir,
                             self.cfg
                         )
+
+                        # SS: mutational robustness of the living self-replicators.
+                        # Heavy (re-runs many mutants through the VM), so kept on this
+                        # infrequent cadence alongside the frequency reports.
+                        rob_stats = self._robustness_of_self_replicators(pop, cycle_num)
+                        if rob_stats is not None:
+                            wandb_logger.log_mutational_robustness(cycle_num, rob_stats)
                 
                 # Stack has_child to stats as well
                 if 'has_child' in stats:

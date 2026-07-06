@@ -44,14 +44,59 @@ def log_cycle_metrics(start, log_interval, stats):
             "genome/len_q50": q_len_arr[i, 3],
         }, step=step)
 
-def log_genome_part_medians(cycle_num, med_registers, med_instructions, med_ops_per_instr):
-    # SS: median over the living population of the genome's structural part sizes:
-    # registers/state elements, instructions, and op-codes per instruction.
-    wandb.log({
-        "genome/registers_median": med_registers,
-        "genome/instructions_median": med_instructions,
-        "genome/ops_per_instruction_median": med_ops_per_instr,
-    }, step=cycle_num)
+def log_genome_part_distribution(cycle_num, pcts, q_registers, q_instructions, q_ops_per_instr):
+    # SS: percentile distribution over the living population of each genome structural part:
+    # registers/state elements, instructions, and op-codes per instruction. Logging the spread
+    # (p5..p95) rather than just the median exposes shifts in the tails as variants sweep, which
+    # a flat median hides. Keys use the percentile value, e.g. genome/registers_p50.
+    pcts = np.array(pcts)
+    metrics = {}
+    for name, q in (("registers", q_registers),
+                    ("instructions", q_instructions),
+                    ("ops_per_instruction", q_ops_per_instr)):
+        q = np.array(q)
+        for p, v in zip(pcts, q):
+            metrics[f"genome/{name}_p{int(p)}"] = v
+    wandb.log(metrics, step=cycle_num)
+
+def log_language_properties(cycle_num, lang_stats, log_hist=False):
+    # SS: properties of the emergent "language" -- both the genotype (raw token
+    # sequence) and the genotype->phenotype mapping (each genome's header, which
+    # defines its own registers and instruction set). Scalars are logged every
+    # chunk so trends are visible; the opcode/symbol bar charts are heavier media
+    # and only logged when log_hist is set (same cadence as the frequency reports).
+    from physax.config import OP_NAMES, UP_IS_SIZE
+
+    metrics = {f"language/{k}": v for k, v in lang_stats['scalars'].items()}
+
+    if log_hist:
+        for key, counts in (("opcode_usage", lang_stats['opcode_counts']),
+                            ("genome_symbols", lang_stats['symbol_counts'])):
+            rows = [[OP_NAMES.get(i, str(i)), int(counts[i])] for i in range(UP_IS_SIZE)]
+            table = wandb.Table(columns=["op", "count"], data=rows)
+            metrics[f"language/{key}"] = wandb.plot.bar(
+                table, "op", "count", title=f"{key} (cycle {cycle_num})"
+            )
+
+    wandb.log(metrics, step=cycle_num)
+
+def log_mutational_robustness(cycle_num, rob_stats):
+    # SS: point-mutational robustness of the living self-replicators -- the
+    # fraction of single-substitution mutants whose replication phenotype
+    # survives. baseline_* report how the unmutated genomes fare under the same
+    # step budget; if baseline_self_replicates drops well below 1 the budget is
+    # too short and the robustness numbers are underestimates.
+    metrics = {
+        "robustness/divide": rob_stats['robustness_divide'],
+        "robustness/self_replicate": rob_stats['robustness_self_replicate'],
+        "robustness/baseline_divides": rob_stats['baseline_divides'],
+        "robustness/baseline_self_replicates": rob_stats['baseline_self_replicates'],
+        "robustness/n_genomes": rob_stats['n_genomes'],
+    }
+    per_genome = rob_stats.get('per_genome_robustness_self_replicate')
+    if per_genome is not None and len(per_genome) > 0:
+        metrics["robustness/per_genome_hist"] = wandb.Histogram(np.asarray(per_genome))
+    wandb.log(metrics, step=cycle_num)
 
 def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
     from physax.genome_analysis import compute_diversity_stats

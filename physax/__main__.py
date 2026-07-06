@@ -29,8 +29,14 @@ if __name__ == "__main__":
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
     parser.add_argument('--track_lineage', action='store_true',
                         help="save per-chunk genealogy edge lists (child_id, parent_id) for lineage analysis")
-    parser.add_argument('--lineage_dir', type=str, default="lineage",
-                        help="directory to write lineage edge files into (with --track_lineage)")
+    parser.add_argument('--snapshot_interval', type=int, default=0,
+                        help="with --track_lineage, also dump a full population genome "
+                             "snapshot every N cycles (0=off; must be a multiple of "
+                             "--log_interval) so lineage ids can be mapped back to genotypes")
+    parser.add_argument('--lineage_dir', type=str, default=None,
+                        help="directory to write lineage edge files into (with --track_lineage). "
+                             "Defaults to a 'lineage' folder inside this run's output directory so "
+                             "each run's genealogy is isolated; pass a path to override.")
     parser.add_argument('--no-caching', dest='caching', action='store_false', help='Keep all genomes on the slow track all the time')
     parser.add_argument('--no-compile-cache', dest='compile_cache', action='store_false', help='Disable the JAX persistent compilation cache')
     args = parser.parse_args()
@@ -75,6 +81,11 @@ if __name__ == "__main__":
     path.mkdir(parents=True, exist_ok=True)
     print(f"\nSaving results to: {path}")
 
+    # Isolate each run's genealogy: default the lineage dir into this run's output
+    # folder (which is freshly created and timestamped), so runs don't clobber a
+    # shared 'lineage/'. An explicit --lineage_dir still overrides.
+    lineage_dir = args.lineage_dir if args.lineage_dir else str(path / "lineage")
+
     model = Model(cfg)
     key = random.PRNGKey(args.seed)
     try:
@@ -86,7 +97,8 @@ if __name__ == "__main__":
             output_dir=str(path),
             toy_mode=args.toy,
             track_lineage=args.track_lineage,
-            lineage_dir=args.lineage_dir,
+            lineage_dir=lineage_dir,
+            snapshot_interval=args.snapshot_interval,
         )
     except Exception as e:
         print(f"Unhandled exception in main: {e}")

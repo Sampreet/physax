@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from physax.config import (
     Config, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD,
-    FAST_TRACK, SLOW_TRACK, PERCENTILES, OP_NAMES
+    FAST_TRACK, SLOW_TRACK, PERCENTILES, OP_NAMES, UP_IS_SIZE, N_OPERANDS
 )
 from collections import defaultdict
 
@@ -112,6 +112,151 @@ def compute_cycle_stats(pop, n_births, cfg: Config):
         'births': n_births,
         'q_genome_len': q_genome_len,
     }
+
+def _shannon(counts):
+    """Shannon entropy (nats) of a non-negative count vector. Matches the
+    natural-log convention used by compute_diversity_stats above."""
+    counts = np.asarray(counts, dtype=np.float64)
+    total = counts.sum()
+    if total <= 0:
+        return 0.0
+    p = counts[counts > 0] / total
+    return float(-np.sum(p * np.log(p)))
+
+
+def compute_language_stats(pop, cfg: Config):
+    """Metrics describing the emergent *language*, in two families matching how a
+    genome is structured:
+
+      A. Genotype -- the raw token sequence itself.
+      B. Genotype->phenotype mapping -- the header before SEP, which defines each
+         organism's own registers (R/S/Q) and instruction set (I markers), i.e.
+         the language its post-SEP program is written in.
+
+    All reductions are over the living population. Returns a dict of scalars plus
+    two length-UP_IS_SIZE count vectors (for opcode/symbol bar charts), or None if
+    nobody is alive.
+    """
+    alive = np.asarray(pop.alive)
+    if not np.any(alive):
+        return None
+
+    genome = np.asarray(pop.genome)[alive]              # (n, L) raw tokens
+    glen = np.asarray(pop.genome_len)[alive].astype(np.int64)
+    sep = np.asarray(pop.separator_pos)[alive].astype(np.int64)
+    n_instr = np.asarray(pop.n_instructions)[alive].astype(np.int64)
+    itable = np.asarray(pop.instruction_table)[alive]   # (n, M, K) parsed micro-ops
+    ilens = np.asarray(pop.instruction_lengths)[alive]  # (n, M)
+    executed = np.asarray(pop.executed)[alive]          # (n, L) bool
+    n_ses = np.asarray(pop.n_ses)[alive].astype(np.int64)
+
+    n, L = genome.shape
+    M, K = itable.shape[1], itable.shape[2]
+    in_genome = np.arange(L)[None, :] < glen[:, None]   # valid-token mask
+    n_ops = np.asarray(N_OPERANDS)
+
+    stats = {}
+
+    # ---- A. Genotype: the raw token sequence -------------------------------
+    # A2. Coding fraction: share of a genome's tokens the VM ever executed --
+    # a "junk DNA" measure. executed is only ever set within genome_len.
+    coding = np.where(glen > 0, np.sum(executed & in_genome, axis=1) / np.maximum(glen, 1), 0.0)
+    stats['coding_fraction'] = float(np.mean(coding))
+
+    # A3. Header/code split: SEP divides the language definition from the
+    # program that uses it.
+    stats['header_fraction'] = float(np.mean(np.where(glen > 0, sep / np.maximum(glen, 1), 0.0)))
+    stats['code_section_len'] = float(np.mean(np.maximum(glen - sep - 1, 0)))
+    stats['registers_mean'] = float(np.mean(n_ses))
+
+    # A1. Vocabulary: pooled distribution of raw symbols (clamped to the opcode
+    # range; operands/code-refs outside it are dropped from the alphabet view).
+    tokens = genome[in_genome]
+    tokens = tokens[(tokens >= 0) & (tokens < UP_IS_SIZE)]
+    symbol_counts = np.bincount(tokens, minlength=UP_IS_SIZE)[:UP_IS_SIZE]
+    stats['genome_symbol_entropy'] = _shannon(symbol_counts)
+    stats['genome_vocab_size'] = int(np.sum(symbol_counts > 0))
+
+    # ---- B. Genotype->phenotype mapping: the parsed instruction set --------
+    # Recover which instruction-table positions are opcodes by re-walking the
+    # operand-count chain (mirrors Agent._build_instruction_set), vectorised over
+    # all (organism, instruction) pairs, looping only over the K micro-op slots.
+    next_op = np.zeros((n, M), dtype=np.int64)
+    is_op = np.zeros((n, M, K), dtype=bool)
+    for j in range(K):
+        val = itable[:, :, j]
+        at_op = (next_op == j) & (j < ilens)
+        is_op[:, :, j] = at_op
+        nj = n_ops[np.clip(val, 0, UP_IS_SIZE - 1)]
+        next_op = np.where(at_op, j + 1 + nj, next_op)
+
+    # B5. Instruction-set composition: which primitives the language is built from.
+    opcodes = itable[is_op]
+    opcodes = opcodes[(opcodes >= 0) & (opcodes < UP_IS_SIZE)]
+    opcode_counts = np.bincount(opcodes, minlength=UP_IS_SIZE)[:UP_IS_SIZE]
+    stats['opcode_entropy'] = _shannon(opcode_counts)
+    stats['opcode_vocab_size'] = int(np.sum(opcode_counts > 0))
+
+    # Per-organism metrics needing genome slicing / hashing -- one pass.
+    # B6/B7. Referenced instructions: post-SEP tokens index the table via
+    #        abs(token) % n_instructions (as in VirtualMachine.execute_one).
+    # B8.    Dialect: two organisms sharing a header (genome[:sep+1]) define the
+    #        same language even if their programs differ.
+    eff_instr = []
+    dead_frac = []
+    n_defined = []
+    reuse = []
+    mops_per_instr = []
+    dialects = []
+    for i in range(n):
+        end = int(glen[i])
+        s = int(sep[i])
+        header = genome[i, :min(s + 1, end)]
+        dialects.append(hash(header.tobytes()))
+
+        ni = int(n_instr[i])
+        if ni <= 0:
+            continue
+        n_defined.append(ni)                            # B9. instructions defined
+        # B10. Hierarchy proxy: micro-ops bundled per defined instruction.
+        li = ilens[i, :ni]; li = li[li > 0]
+        if li.size:
+            mops_per_instr.append(float(np.mean(li)))
+        code = genome[i, s + 1:end]
+        if code.size == 0:
+            refd = 0
+        else:
+            refd = int(np.unique(np.abs(code) % ni).size)
+            # B11. Recurrence: how many times each *used* instruction is invoked.
+            reuse.append(code.size / max(refd, 1))
+        eff_instr.append(refd)
+        dead_frac.append((ni - refd) / ni)
+
+    stats['effective_instructions'] = float(np.mean(eff_instr)) if eff_instr else 0.0
+    stats['dead_instruction_frac'] = float(np.mean(dead_frac)) if dead_frac else 0.0
+    stats['instructions_defined'] = float(np.mean(n_defined)) if n_defined else 0.0
+    stats['instruction_reuse'] = float(np.mean(reuse)) if reuse else 0.0
+    stats['micro_ops_per_instruction'] = float(np.mean(mops_per_instr)) if mops_per_instr else 0.0
+
+    dialects = np.array(dialects)
+    uniq, counts = np.unique(dialects, return_counts=True)
+    stats['distinct_dialects'] = int(uniq.size)
+    stats['dialect_shannon'] = _shannon(counts)
+
+    # A4. Within-genome symbol entropy: internal redundancy / compressibility.
+    per_genome_ent = []
+    for i in range(n):
+        row = genome[i, :int(glen[i])]
+        row = row[(row >= 0) & (row < UP_IS_SIZE)]
+        per_genome_ent.append(_shannon(np.bincount(row, minlength=UP_IS_SIZE)))
+    stats['genome_entropy_mean'] = float(np.mean(per_genome_ent)) if per_genome_ent else 0.0
+
+    return {
+        'scalars': stats,
+        'symbol_counts': symbol_counts,
+        'opcode_counts': opcode_counts,
+    }
+
 
 def analyze_and_plot_top_genomes(all_stats, filename="top_genomes.png", start_cycle=0, only_self_replicators=True):
     """
