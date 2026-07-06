@@ -310,11 +310,26 @@ class Model:
         new_status, new_gestation = classify_genome(pop, self.cfg)
         
         if do_collect:
+            # Archiving newly-classified genomes needs a host transfer via
+            # jax.debug.callback, whose fixed overhead is ~119 ms/cycle at pop
+            # 16384 -- and it dominated runtime once the VM moved to the kernel.
+            # A genome is actually newly classified in only ~8% of cycles, so we
+            # fire each callback under lax.cond(any(mask)): the collected set is
+            # bitwise-identical to firing every cycle, but the transfer is skipped
+            # on the ~92% of cycles with nothing new. (do_collect still allows an
+            # additional coarser cadence via --collect_interval.)
             newly_self_rep = pop.alive & (new_status == SELF_REPLICATING) & (pop.status != SELF_REPLICATING)
-            jax.debug.callback(collect_self_replicating, pop.genome_hash, pop.genome, newly_self_rep)
-
+            lax.cond(
+                jnp.any(newly_self_rep),
+                lambda: jax.debug.callback(collect_self_replicating, pop.genome_hash, pop.genome, newly_self_rep),
+                lambda: None,
+            )
             newly_fertile = pop.alive & (new_status == FERTILE) & (pop.status != FERTILE)
-            jax.debug.callback(collect_fertile, pop.genome_hash, pop.genome, newly_fertile)
+            lax.cond(
+                jnp.any(newly_fertile),
+                lambda: jax.debug.callback(collect_fertile, pop.genome_hash, pop.genome, newly_fertile),
+                lambda: None,
+            )
 
         just_classified = pop.alive & (new_status != UNCLASSIFIED) & (pop.status == UNCLASSIFIED)
         pop = pop._replace(status=new_status, gestation_time=new_gestation)
@@ -474,16 +489,27 @@ class Model:
                 for c in range(chunk_keys.shape[0]):
                     k = chunk_keys[c]
                     cyc_num = base_cycle + c + 1
-                    # Collect self-replicator/fertile genomes only every
-                    # collect_interval cycles (and on the very last cycle): the
-                    # per-cycle host transfer dominates runtime and the collection
-                    # is auxiliary (does not affect pop/db).
-                    do_collect = (cyc_num % collect_interval == 0) or (cyc_num == total_cycles)
                     pop, is_slow = pre_jit(pop, db)
                     pop = vm_runner.run(pop, is_slow)            # mutates pop in place
-                    pop, db, stats = post_jit(pop, db, cycle_idx, k, is_slow, do_collect)
+                    # do_collect=False: keep the genome-collection jax.debug.callbacks
+                    # OUT of the jitted graph. They are an ordered effect whose mere
+                    # presence forces a host-sync barrier every cycle (~90 ms at pop
+                    # 16384), dominating runtime once the VM is on the kernel. We
+                    # collect in plain Python below instead (no lax.scan here to stop
+                    # us), which costs one host transfer per collect_interval cycles.
+                    pop, db, stats = post_jit(pop, db, cycle_idx, k, is_slow, False)
                     cycle_idx = cycle_idx + 1
                     stats_list.append(stats)
+                    # Archive the standing self-replicator / fertile genomes on a
+                    # coarse cadence (dedup'd by hash in the collectors). Auxiliary
+                    # data for end-of-run reports; does not affect pop/db.
+                    if (cyc_num % collect_interval == 0) or (cyc_num == total_cycles):
+                        collect_self_replicating(
+                            pop.genome_hash, pop.genome,
+                            pop.alive & (pop.status == SELF_REPLICATING))
+                        collect_fertile(
+                            pop.genome_hash, pop.genome,
+                            pop.alive & (pop.status == FERTILE))
                 stats = jax.tree.map(lambda *xs: jnp.stack(xs), *stats_list)
                 return pop, db, cycle_idx, stats
             print(f"VM backend: CUDA kernel (physax.vm_kernel.VMRunner); "

@@ -109,6 +109,12 @@ if __name__ == "__main__":
             lineage_dir=lineage_dir,
             snapshot_interval=args.snapshot_interval,
             use_kernel=args.use_kernel,
+            # On the kernel path, genome collection runs in Python (no in-graph
+            # jax.debug.callback, which would force a ~90 ms/cycle host-sync
+            # barrier). Every-cycle collection still costs ~85 ms/cycle (standing-
+            # set transfer + dict scan); every log_interval cycles it is ~31 ms
+            # (~34x vs the JAX baseline) and archives the same established genomes.
+            # Default to log_interval under --kernel; the JAX path stays every cycle.
             collect_interval=(
                 args.collect_interval if args.collect_interval is not None
                 else (log_interval if args.use_kernel else 1)
