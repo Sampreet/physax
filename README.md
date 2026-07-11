@@ -15,24 +15,39 @@ uv sync
 This will create a virtual environment, activate it, and install all dependencies (including PyTorch with the `cu121` setup).
 
 
-### Execute the simulation:
+### Reproducing the main experiment
+
+The experiment behind `docs/experiment_summary.tex` is a set of independent seeds,
+each a 200k-cycle run on the `128×128` grid (`pop_size 16384`) seeded with 50
+`arche.replicator` founders. Launch one process per seed (`--seed` can be any integer,
+e.g. 0):
 
 ```bash
+python -m physax --pop_size 16384 --initial_pop 50 --total_cycles 200000 --log_interval 50 \
+    --seed 62 --wandb --track_lineage --no-caching --max_micro_ops 32 --snapshot_interval 1000 --kernel
 
-CUDA_VISIBLE_DEVICES=2 python -m physax --pop_size 65536 --initial_pop 1000 --total_cycles 6000 --log_interval 50
-CUDA_VISIBLE_DEVICES=2 python -m physax --pop_size 16384 --initial_pop 50 --total_cycles 6000 --log_interval 50
+python -m physax --pop_size 16384 --initial_pop 50 --total_cycles 200000 --log_interval 50 \
+    --seed 63 --wandb --track_lineage --no-caching --max_micro_ops 32 --snapshot_interval 1000 --kernel
+```
 
-CUDA_VISIBLE_DEVICES=0 python -m physax --toy
+Each run preallocates a nearly-full GPU, so give each seed its own device
+(`CUDA_VISIBLE_DEVICES=<gpu>`). Flag notes:
+- `--no-caching` **and** `--max_micro_ops 32` keep self-replicators alive; caching-on
+  and/or the default `max_micro_ops 16` cause a die-off after ~40k cycles.
+- `--snapshot_interval 1000` dumps population snapshots to
+  `<run>/lineage/snapshot_<cycle>.npz` (needed for the figures).
+- `--kernel` runs the bitwise-identical Numba CUDA VM backend (~34× faster, ~1.7 h/seed);
+  drop it for the pure-JAX path.
 
-# re-run visualization of the run (pass folder name, base path should be in the .env file):
-python -m physax.visualization --folder run_30000_cycles_seed_49_2026-06-15_00-09
+Runs land in `output/run_200000_cycles_seed_<seed>_<timestamp>/`.
 
+### Producing the figures and the report
 
-# view the list of genomes of a certain status at a given cycle
-python show_cycle_genomes.py --cycle 100000 --status SELF_REPLICATING --folder run_100000_cycles_seed_54_2026-06-16_23-08 --top_n 10
+`docs/make_figures.py` picks up the newest run per seed under `output/`, recomputes the
+per-snapshot metrics (cached in `<run>/figure_cache.pkl`), and writes PDFs into
+`docs/figures/`. Run on CPU to keep the GPUs free:
 
-# decode genome from folder
-python decode_genome_illustration.py --folder run_100000_cycles_seed_54_2026-06-16_23-08 --hash 3427106465219753476
-
-python evaluate_genomes.py --folder run_200000_cycles_seed_54_2026-06-19_17-27 --cycle 190000 --num-genomes 20
+```bash
+JAX_PLATFORMS=cpu python docs/make_figures.py
+cd docs && pdflatex experiment_summary.tex
 ```
