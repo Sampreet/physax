@@ -148,7 +148,7 @@ class Model:
         )
         return pop
 
-    def _place_children_on_grid(self, pop: Agent, has_child: jnp.ndarray, child_states: Agent, key, cycle_idx) -> tuple[Agent, jnp.ndarray, jnp.ndarray]:
+    def _place_children_on_grid(self, pop: Agent, has_child: jnp.ndarray, child_states: Agent, mut_keys_used, key, cycle_idx):
         """Calculate spatial placement on a 2D toroidal grid using the OldestNurse algorithm."""
         grid_side = int(np.ceil(np.sqrt(self.cfg.pop_size)))
         W = grid_side
@@ -198,8 +198,9 @@ class Model:
         any_child_placed = winner < NO_PARENT
         source_parent = jnp.where(any_child_placed, winner, 0)  # clamp unplaced cells to a valid index
 
-        # Gather child states from the winning parents
+        # Gather child states and mutation keys from the winning parents
         gathered_children = jax.tree.map(lambda x: x[source_parent], child_states)
+        gathered_mut_keys = jnp.take(mut_keys_used, source_parent, axis=0)
 
         # Assign lineage to each placed child. The child in cell j gets a globally
         # unique id (cycle_idx * pop_size + j) and records the id of its parent
@@ -223,7 +224,10 @@ class Model:
         # Birth edges for genealogy (-1 where no child was placed this cycle)
         child_id_edge = jnp.where(any_child_placed, new_ids, jnp.int32(-1))
         parent_id_edge = jnp.where(any_child_placed, parent_ids_for_cell, jnp.int32(-1))
-        return new_pop, child_id_edge, parent_id_edge
+        
+        gathered_unmut_tapes = jnp.take(pop.child_tape, source_parent, axis=0)
+        gathered_unmut_lens = jnp.take(pop.child_tape_len, source_parent, axis=0)
+        return new_pop, child_id_edge, parent_id_edge, gathered_mut_keys, gathered_unmut_tapes, gathered_unmut_lens
 
     def cycle_step(self, pop: Agent, db: GenomeDB, cycle_idx, key) -> tuple[Agent, GenomeDB, dict]:
         """Execute one cycle using the JAX VM interpreter (reference path).
@@ -306,6 +310,15 @@ class Model:
         # 2. Aging Phase for slow track
         pop = pop._replace(age=jnp.where(pop.alive & is_slow, pop.age + 1, pop.age))
 
+        # Check for self-modification: Recompute hashes and reset status if genome changed
+        new_hashes = jax.vmap(Agent._hash_genome, in_axes=(0, 0, None))(pop.genome, pop.genome_len, self.cfg)
+        hash_changed = pop.alive & ((new_hashes[:, 0] != pop.genome_hash[:, 0]) | (new_hashes[:, 1] != pop.genome_hash[:, 1]))
+        
+        pop = pop._replace(
+            genome_hash=jnp.where(hash_changed[:, None], new_hashes, pop.genome_hash),
+            status=jnp.where(hash_changed, jnp.int32(UNCLASSIFIED), pop.status)
+        )
+
         # 3. Classification Phase
         new_status, new_gestation = classify_genome(pop, self.cfg)
         
@@ -354,9 +367,10 @@ class Model:
             new_tape, new_len = Agent.apply_divide_mutations(mut_key, tape, tape_len, status, self.cfg)
             tape_out = jnp.where(has, new_tape, tape)
             len_out = jnp.where(has, new_len, tape_len)
-            return tape_out, len_out
+            safe_key = jnp.where(has[..., None] if has.ndim < mut_key.ndim else has, mut_key, 0)
+            return tape_out, len_out, safe_key
 
-        mutated_tapes, mutated_lens = jax.vmap(mutate_one)(
+        mutated_tapes, mutated_lens, mut_keys_used = jax.vmap(mutate_one)(
             mut_keys, pop.child_tape, pop.child_tape_len, has_child, pop.status
         )
 
@@ -367,8 +381,8 @@ class Model:
         )
 
         # 5. Spatial Placement Phase
-        pop, child_id_edge, parent_id_edge = self._place_children_on_grid(
-            pop, has_child, child_states, k_place, cycle_idx
+        pop, child_id_edge, parent_id_edge, gathered_mut_keys, gathered_unmut_tapes, gathered_unmut_lens = self._place_children_on_grid(
+            pop, has_child, child_states, mut_keys_used, k_place, cycle_idx
         )
 
         # 5. Cleanup Phase
@@ -400,6 +414,9 @@ class Model:
         # over the scan into (log_interval, pop_size) arrays.
         stats['child_id'] = child_id_edge
         stats['parent_id'] = parent_id_edge
+        stats['mut_keys'] = gathered_mut_keys
+        stats['unmut_tapes'] = gathered_unmut_tapes
+        stats['unmut_lens'] = gathered_unmut_lens
         return pop, db, stats
 
     def _robustness_of_self_replicators(self, pop, cycle_num, n_genomes=16, n_mutants=32):
@@ -631,13 +648,21 @@ class Model:
                 if track_lineage:
                     child_ids = np.array(stats['child_id'])      # (log_interval, pop_size)
                     parent_ids = np.array(stats['parent_id'])
+                    mut_keys = np.array(stats['mut_keys'])
                     rows, cols = np.nonzero(child_ids >= 0)
                     born_cycle = (start + 1) + rows               # cycle_idx of each birth
+                    
+                    unmut_tapes = np.array(stats['unmut_tapes'])
+                    unmut_lens = np.array(stats['unmut_lens'])
+                    
                     np.savez_compressed(
                         f"{lineage_dir}/edges_{cycle_num}.npz",
                         birth_cycle=born_cycle.astype(np.int64),
                         child_id=child_ids[rows, cols].astype(np.int64),
                         parent_id=parent_ids[rows, cols].astype(np.int64),
+                        mut_key=mut_keys[rows, cols],
+                        unmut_tape=unmut_tapes[rows, cols],
+                        unmut_len=unmut_lens[rows, cols]
                     )
 
                 # Persist a population genome snapshot on a coarser cadence than

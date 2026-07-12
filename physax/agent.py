@@ -303,18 +303,18 @@ class Agent(NamedTuple):
     @staticmethod
     def apply_divide_mutations(key, child_tape, child_tape_len, status, cfg: Config):
         """Apply divide mutations to child tape after successful divide.
-        Order: point mutation, insertion, deletion (matching CellGeneticCodeTape.divide()).
-        Also applies deferred copy_mutation if status is WELL_BEHAVED.
+        All mutations are applied sequentially and deterministically given the PRNG key.
+        Order: copy_mutation (per-gene), point mutation (single), insertion (single), deletion (single).
         """
         k_copy_1, k_copy_2, k1, k2, k3, k4, k5, k6, k7 = random.split(key, 9)
 
-        # 0. Deferred copy mutation (applied to all dividing agents)
+        # 0. Copy mutation (per-gene point mutation at copy_mutation_rate)
         do_copy = random.uniform(k_copy_1, (cfg.max_genome_len,)) < cfg.copy_mutation_rate
         copy_vals = random.randint(k_copy_2, (cfg.max_genome_len,), 0, UP_IS_SIZE).astype(jnp.int32)
         valid_mask = jnp.arange(cfg.max_genome_len) < child_tape_len
         child_tape = jnp.where(do_copy & valid_mask, copy_vals, child_tape)
 
-        # 1. Point mutation
+        # 1. Point mutation (single gene, rate = divide_mutation_rate)
         do_point = random.uniform(k1) < cfg.divide_mutation_rate
         point_pos = random.randint(k2, (), 0, jnp.maximum(child_tape_len, 1))
         point_val = random.randint(k3, (), 0, UP_IS_SIZE).astype(jnp.int32)
@@ -324,7 +324,7 @@ class Agent(NamedTuple):
             child_tape
         )
 
-        # Insertion (rate = divide_insert_rate)
+        # 2. Insertion (rate = divide_insert_rate)
         do_insert = random.uniform(k4) < cfg.divide_insert_rate
         insert_pos = random.randint(k5, (), 0, jnp.maximum(child_tape_len + 1, 1))
         insert_val = random.randint(k3, (), 0, UP_IS_SIZE).astype(jnp.int32)
@@ -340,7 +340,7 @@ class Agent(NamedTuple):
         child_tape = jnp.where(can_insert, shifted_right, child_tape)
         child_tape_len = jnp.where(can_insert, child_tape_len + 1, child_tape_len)
 
-        # Deletion (rate = divide_delete_rate)
+        # 3. Deletion (rate = divide_delete_rate)
         do_delete = random.uniform(k6) < cfg.divide_delete_rate
         can_delete = do_delete & (child_tape_len > 1)
         delete_pos = random.randint(k7, (), 0, jnp.maximum(child_tape_len - 1, 1))

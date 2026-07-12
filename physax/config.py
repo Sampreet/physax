@@ -127,7 +127,7 @@ class Config:
     initial_pop: int = 1
 
     steps_per_update: int = 34
-    copy_mutation_rate: float = 0.03  # 0.009
+    copy_mutation_rate: float = 0.009
     divide_mutation_rate: float = 0.0
     divide_insert_rate: float = 0.0013
     divide_delete_rate: float = 0.0013
@@ -215,6 +215,14 @@ def tape_write(state: OpState, args: OpArgs, cfg: Config, position, value):
     # Child write
     child_idx = jnp.clip(pos - args.genome_len, 0, state.child_l - 1)
     in_child = ~in_parent & state.already_alloc
+    # Copy mutation must NOT be applied here because the CUDA kernel (vm_kernel.py) 
+    # cannot easily execute random ops per-instruction. It is instead applied at 
+    # the end of division in Agent.apply_divide_mutations.
+    # k1, k2 = random.split(args.step_key)
+    # do_mutate = random.uniform(k1) < cfg.copy_mutation_rate
+    # mutated_value = random.randint(k2, (), 0, UP_IS_SIZE).astype(jnp.int32)
+    # final_value = jnp.where(do_mutate & in_child, mutated_value, value)
+    # new_child = jnp.where(in_child, state.child_arr.at[child_idx].set(final_value), state.child_arr)
 
     new_child = jnp.where(in_child, state.child_arr.at[child_idx].set(value), state.child_arr)
     new_child_cop = jnp.where(in_child, state.child_cop.at[child_idx].set(True), state.child_cop)

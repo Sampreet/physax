@@ -24,6 +24,10 @@ if __name__ == "__main__":
                         help="max micro-ops per compound instruction; caps instruction length "
                              "and sets the inner VM scan length (dominant runtime cost). "
                              "Ancestor's longest instruction is 8; 16 gives headroom at ~2x the speed of 32.")
+    parser.add_argument('--copy_mutation_rate', type=float, default=0.009, help='Per-gene copy mutation rate')
+    parser.add_argument('--divide_mutation_rate', type=float, default=0.0, help='Point mutation rate during division')
+    parser.add_argument('--divide_insert_rate', type=float, default=0.0013, help='Insertion rate during division')
+    parser.add_argument('--divide_delete_rate', type=float, default=0.0013, help='Deletion rate during division')
     parser.add_argument('--toy', action='store_true', help='Run a very small toy scenario for debugging')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for the simulation')
     parser.add_argument('--wandb', action='store_true', help='Enable wandb logging')
@@ -64,7 +68,11 @@ if __name__ == "__main__":
             max_genome_len=128,
             max_micro_ops=args.max_micro_ops,
             seed=args.seed,
-            caching=args.caching
+            caching=args.caching,
+            copy_mutation_rate=args.copy_mutation_rate,
+            divide_mutation_rate=args.divide_mutation_rate,
+            divide_insert_rate=args.divide_insert_rate,
+            divide_delete_rate=args.divide_delete_rate
         )
         args.total_cycles = 500
         log_interval = 1
@@ -74,7 +82,11 @@ if __name__ == "__main__":
             initial_pop=args.initial_pop,
             max_micro_ops=args.max_micro_ops,
             seed=args.seed,
-            caching=args.caching
+            caching=args.caching,
+            copy_mutation_rate=args.copy_mutation_rate,
+            divide_mutation_rate=args.divide_mutation_rate,
+            divide_insert_rate=args.divide_insert_rate,
+            divide_delete_rate=args.divide_delete_rate
         )
         log_interval = args.log_interval
     print(f"max_micro_ops: {cfg.max_micro_ops}")
