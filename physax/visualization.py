@@ -491,6 +491,75 @@ def plot_gestation_and_diversity(stats, filename="gestation_diversity.png"):
     plt.close()
     print(f"Saved gestation, diversity and counts plot to {filename}")
 
+def plot_unique_over_time(stats, filename="unique_over_time.png"):
+    """Plot population over time."""
+
+    cycles = []
+    count_list = []
+    value_list = []
+
+    for chunk in stats:
+        cycle = chunk['cycle']
+        snap = chunk['snapshot']
+
+        alive = snap['alive']
+        hashes = snap['hash']
+        if hashes.ndim == 2:
+            hashes = (hashes[:, 0].astype(np.int64) << 32) | (hashes[:, 1].astype(np.uint32).astype(np.int64))
+
+        cycles.append(cycle)
+
+        alive = snap.get('alive', np.array([]))
+        if len(alive) == 0:
+            return None
+
+        dead_mask = ~alive
+
+        # Panel 1: Unique Hash
+        hash_vals = snap.get('hash', np.zeros_like(alive, dtype=np.uint32))
+        print("hash_vals.shape", hash_vals.shape)
+        if hash_vals.ndim == 2:
+            hash_vals = hash_vals[:, 0]
+
+        # Map hash to RGB using 'hsv' colormap
+        cmap_hash = plt.get_cmap('hsv')
+        normed_hash = (hash_vals % 1000) / 1000.0
+        rgba_hash = cmap_hash(normed_hash)
+        rgb_hash = rgba_hash[..., :3]
+        rgb_hash[dead_mask] = [0.0, 0.0, 0.0]
+        values, counts = np.unique(rgb_hash.reshape((-1,3)), return_counts=True, axis=0)
+        value_list.append(values)
+        count_list.append(counts)
+
+    if not cycles:
+        print("No replicating agents found to plot gestation and diversity.")
+        return
+
+    unique_hashes = np.unique(np.vstack(value_list), axis=0)
+    full_value_list = []
+    full_count_list = []
+    for c in range(len(cycles)):
+        full_value_list.append(unique_hashes)
+        c_arr = np.array(count_list[c])
+        v_arr = value_list[c]
+        count_list_c = []
+        for h in unique_hashes:
+            count = c_arr[np.all(v_arr == h,axis=-1)]
+            if len(count) == 1:
+                count_list_c.append(count[0])
+            else:
+                count_list_c.append(0)
+        full_count_list.append(count_list_c)
+
+    plt.figure(figsize=(20,6))
+    plt.stackplot(cycles, np.array(full_count_list).transpose()[1:], colors=unique_hashes)
+    plt.title('Unique genomes over time')
+    plt.xlabel('cycle')
+    plt.ylabel('unique genomes')
+    plt.savefig(filename)
+    plt.close()
+    print(f"Saved unique over time plot to {filename}")
+
 def generate_all_visualizations(stats, output_dir, cfg=None):
     from pathlib import Path
     from physax.genome_analysis import analyze_and_plot_top_genomes
@@ -518,6 +587,9 @@ def generate_all_visualizations(stats, output_dir, cfg=None):
     
     # Plot gestation and diversity over time
     plot_gestation_and_diversity(stats, str(path / "gestation_diversity.png"))
+
+    # Plot unique genomes over time
+    plot_unique_over_time(stats, str(path / "unique_over_time.png"))
     
     # Analyze and plot top genomes
     top_hashes = analyze_and_plot_top_genomes(stats, str(path / "top_genomes_self_replicators.png"), only_self_replicators=True)
