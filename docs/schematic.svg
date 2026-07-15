@@ -206,7 +206,7 @@
   <text class="cls-14" transform="translate(82.5 133.58)"><tspan x="0" y="0">ALLOC</tspan><tspan class="cls-26" x="29.51" y="0">A</tspan><tspan x="34.85" y="0">TE, DIVIDE</tspan></text>
   <text class="cls-14" transform="translate(194.5 10.95)"><tspan x="0" y="0">B)</tspan></text>
   <text class="cls-14" transform="translate(106.21 177.61)"><tspan x="0" y="0">C)</tspan></text>
-  <text class="cls-20" transform="translate(182.03 194.84)"><tspan class="cls-22" x="0" y="0" xml:space="preserve"> I </tspan><tspan class="cls-15" x="7.5" y="0" xml:space="preserve">LOAD 0 2  </tspan><tspan class="cls-22" x="52.02" y="0" xml:space="preserve"> I</tspan><tspan class="cls-15" x="57.02" y="0" xml:space="preserve"> INC 2  </tspan><tspan class="cls-22" x="87.53" y="0" xml:space="preserve">    SE</tspan><tspan class="cls-23" x="109.54" y="0">P</tspan></text>
+  <text class="cls-20" transform="translate(182.03 194.84)"><tspan class="cls-22" x="0" y="0" xml:space="preserve"> I </tspan><tspan class="cls-15" x="7.5" y="0" xml:space="preserve">LOAD 0 2  </tspan><tspan class="cls-22" x="52.02" y="0" xml:space="preserve"> I</tspan><tspan class="cls-15" x="57.02" y="0" xml:space="preserve"> INC 2 </tspan><tspan class="cls-22" x="85.03" y="0">I</tspan><tspan class="cls-15" x="87.53" y="0" xml:space="preserve">  </tspan><tspan class="cls-22" x="92.53" y="0" xml:space="preserve">    SE</tspan><tspan class="cls-23" x="114.54" y="0">P</tspan></text>
   <text class="cls-14" transform="translate(325.46 194.84)"><tspan x="0" y="0">1 0 1</tspan></text>
   <text class="cls-18" transform="translate(200.95 222.64)"><tspan x="0" y="0">0</tspan></text>
   <text class="cls-14" transform="translate(327.91 223.35)"><tspan x="0" y="0">0 1 2 </tspan></text>
@@ -232,8 +232,8 @@
   </g>
   <text class="cls-14" transform="translate(132.33 221.67)"><tspan x="0" y="0">I R1 R2 R3</tspan></text>
   <g>
-    <path class="cls-5" d="M142.25,202.5c7.11,3.49,44.14,20.95,99.07,19.02,42.09-1.47,70.88-13.49,83.41-19.78"/>
-    <path class="cls-22" d="M330.05,198.91c-2.03,2.25-4.32,5.47-5.37,8.17l-.68-5.01-3.73-3.42c2.82.68,6.77.64,9.78.26Z"/>
+    <path class="cls-5" d="M140.11,197.84c7.11,2.91,44.14,17.49,99.07,15.88,41.88-1.23,70.59-11.17,83.22-16.44"/>
+    <path class="cls-22" d="M327.91,194.84c-2.18,2.1-4.7,5.15-5.94,7.77l-.32-5.05-3.47-3.67c2.76.87,6.71,1.12,9.73.95Z"/>
   </g>
   <g>
     <path class="cls-3" d="M341.85,183.67c-3.47-4.02-21.52-24.17-48.3-21.95-19.25,1.6-32.8,13.91-39.44,21.41"/>
