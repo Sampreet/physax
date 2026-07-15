@@ -1,9 +1,19 @@
+"""The reference JAX VM interpreter (`VirtualMachine`).
+
+`update` runs `steps_per_update` compound instructions per organism via
+`lax.scan`; `execute_one` fetches an instruction, resolves operands (with tape
+overflow reads), and dispatches opcodes through `lax.switch` over the function
+table from `physax.sim.isa.get_opcode_functions`. This is the semantics of
+record that the CUDA kernel (`physax.sim.vm_kernel`) reproduces bit-for-bit; the
+simulation runs the kernel, while this interpreter is used for offline genome
+evaluation and to validate the kernel.
+"""
 import jax
 import jax.numpy as jnp
 import jax.lax as lax
 from jax import random
-from physax.config import Config, N_OPERANDS, BLANK, NOP, UP_IS_SIZE, OpState, OpArgs, get_opcode_functions, tape_read, UNCLASSIFIED
-from physax.agent import Agent
+from physax.sim.config import Config, N_OPERANDS, BLANK, NOP, UP_IS_SIZE, OpState, OpArgs, get_opcode_functions, tape_read, UNCLASSIFIED
+from physax.sim.agent import Agent
 
 
 class VirtualMachine:

@@ -1,9 +1,17 @@
+"""The `Agent` organism state and genotype->phenotype parsing.
+
+Defines the immutable `Agent` NamedTuple (genome, parsed instruction table,
+child/reproduction buffers, execution and lineage state) and the pure functions
+that build an organism from a genome: structure/instruction-set parsing, genome
+hashing, ancestor-genome construction, and divide-time mutations. Shared by the
+VM, the model loop, and the offline evaluators.
+"""
 import jax
 import jax.numpy as jnp
 import jax.lax as lax
 from jax import random
 from typing import NamedTuple
-from physax.config import Config, N_OPERANDS, UP_IS_SIZE, BLANK, I, SEP, R, S, Q, B, MOVE, NOP, CLEAR, INC, CINC, LOAD, IS_SEP, IFZERO, JUMP, ALLOCATE, REL_STORE, DEC, IFNOTZERO, DIVIDE, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
+from physax.sim.config import Config, N_OPERANDS, UP_IS_SIZE, BLANK, I, SEP, R, S, Q, B, MOVE, NOP, CLEAR, INC, CINC, LOAD, IS_SEP, IFZERO, JUMP, ALLOCATE, REL_STORE, DEC, IFNOTZERO, DIVIDE, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
 
 class Agent(NamedTuple):
     """Immutable state representation of a single organism."""
@@ -42,11 +50,6 @@ class Agent(NamedTuple):
     def can_execute(self) -> jnp.ndarray:
         """Returns True if the organism is alive and hasn't just divided."""
         return self.alive & ~self.has_child
-
-    @property
-    def is_fertile(self) -> jnp.ndarray:
-        """Returns True if the organism has successfully reproduced."""
-        return self.gestation_time < 2147483647
 
     @classmethod
     def create_empty(cls, cfg: Config) -> "Agent":

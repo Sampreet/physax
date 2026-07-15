@@ -1,3 +1,10 @@
+"""Weights & Biases logging and end-of-run reports.
+
+Per-cycle metrics, genome-structure percentiles, language properties, mutational
+robustness, snapshot+diversity images, and the Markdown top-genome frequency
+reports (which re-simulate genomes and write them to disk). Called from
+`Model.run_simulation`; degrades gracefully when `wandb` is not installed.
+"""
 import os
 import numpy as np
 try:
@@ -6,7 +13,8 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
-from physax.config import BLANK
+from physax.analysis._util import fold_hash
+
 
 def init_wandb(cfg, total_cycles):
     if not WANDB_AVAILABLE:
@@ -65,7 +73,7 @@ def log_language_properties(cycle_num, lang_stats, log_hist=False):
     # defines its own registers and instruction set). Scalars are logged every
     # chunk so trends are visible; the opcode/symbol bar charts are heavier media
     # and only logged when log_hist is set (same cadence as the frequency reports).
-    from physax.config import OP_NAMES, UP_IS_SIZE
+    from physax.sim.config import OP_NAMES, UP_IS_SIZE
 
     metrics = {f"language/{k}": v for k, v in lang_stats['scalars'].items()}
 
@@ -99,9 +107,9 @@ def log_mutational_robustness(cycle_num, rob_stats):
     wandb.log(metrics, step=cycle_num)
 
 def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
-    from physax.genome_analysis import compute_diversity_stats
-    from physax.visualization import draw_3panel_frame
-    from physax.config import BLANK, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
+    from physax.analysis.genome_stats import compute_diversity_stats
+    from physax.analysis.visualization import draw_3panel_frame
+    from physax.sim.config import BLANK, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
     
     div_stats = compute_diversity_stats(snapshot)
     wandb_dict = {f"diversity/{k}": v for k, v in div_stats.items()}
@@ -160,10 +168,10 @@ def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
     wandb.log(wandb_dict, step=cycle_num)
 
 def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_fertile, output_dir, cfg):
-    from physax.genome_analysis import format_genome
+    from physax.analysis.genome_stats import format_genome
     
     def format_decoded_genome(gen_arr, length):
-        from physax.config import OP_NAMES, N_OPERANDS, BLANK
+        from physax.sim.config import OP_NAMES, N_OPERANDS, BLANK
         i = 0
         decoded = []
         genome = [int(x) for x in gen_arr[:length]]
@@ -244,22 +252,21 @@ def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_f
         import jax
         import jax.numpy as jnp
         import numpy as np
-        from physax.agent import Agent
-        from physax.config import UNCLASSIFIED, BLANK
-        from physax.genome_evaluator import run_batch_until_division
+        from physax.sim.agent import Agent
+        from physax.sim.config import UNCLASSIFIED, BLANK
+        from physax.analysis.genome_evaluator import run_batch_until_division
         
         alive_hashes = snapshot['hash'][snapshot['alive']]
         if alive_hashes.ndim == 2:
-            alive_hashes_64 = (alive_hashes[:, 0].astype(np.int64) << 32) | (alive_hashes[:, 1].astype(np.uint32).astype(np.int64))
+            alive_hashes_64 = fold_hash(alive_hashes)
         else:
             alive_hashes_64 = alive_hashes
-        
+
         unique_h, counts = np.unique(alive_hashes_64, return_counts=True)
         freq_dict = dict(zip(unique_h, counts))
-        
+
         def get_freq(h):
-            h_64 = (np.int64(h[0]) << 32) | np.int64(np.uint32(h[1]))
-            return freq_dict.get(h_64, 0)
+            return freq_dict.get(fold_hash(h), 0)
             
         sorted_hashes = sorted(genomes_dict.keys(), key=get_freq, reverse=True)
         top_40 = sorted_hashes[:40]

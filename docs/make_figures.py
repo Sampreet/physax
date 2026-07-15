@@ -9,7 +9,7 @@ Run (CPU is fine, keeps GPUs free for the live sims):
     JAX_PLATFORMS=cpu .venv/bin/python docs/make_figures.py
 Re-run any time; it just picks up whatever snapshots have accumulated.
 """
-import os, glob, pickle
+import os, glob, pickle, argparse
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -17,10 +17,10 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 import jax
-from physax.config import make_config, SELF_REPLICATING, FERTILE, UNCLASSIFIED, BLANK
-from physax.agent import Agent
-from physax.genome_analysis import compute_language_stats, compute_diversity_stats
-from physax.analysis import (load_snapshots, functional_diversity, gp_map_bias,
+from physax.sim.config import make_config, SELF_REPLICATING, FERTILE, UNCLASSIFIED, BLANK
+from physax.sim.agent import Agent
+from physax.analysis.genome_stats import compute_language_stats, compute_diversity_stats
+from physax.analysis.gp_map import (load_snapshots, functional_diversity, gp_map_bias,
                              genotype_network, gp_bipartite)
 import networkx as nx
 
@@ -30,7 +30,6 @@ os.makedirs(FIGDIR, exist_ok=True)
 
 # Okabe-Ito colorblind-safe categorical palette (fixed order, one per seed).
 OKABE = ["#0072B2", "#D55E00", "#009E73", "#CC79A7", "#E69F00"]
-MARKERS = ["o", "s", "^", "D", "v"]
 
 plt.rcParams.update({
     "font.family": "serif", "font.size": 9, "axes.titlesize": 9,
@@ -41,8 +40,12 @@ plt.rcParams.update({
 
 
 def find_run(seed):
-    ds = sorted(glob.glob(f"output/run_200000_cycles_seed_{seed}_*"), key=os.path.getmtime)
-    return ds[-1] if ds else None
+    # Pick the most recent run by the timestamp in the directory name, NOT by
+    # file mtime: make_figures writes a metrics cache into the run dir, which
+    # bumps its mtime and could otherwise make a stale completed run outrank the
+    # live one (an mtime race that silently plotted an old 200k run for one seed).
+    ds = glob.glob(f"output/run_200000_cycles_seed_{seed}_*")
+    return max(ds, key=lambda d: os.path.basename(d).split(f"seed_{seed}_")[-1]) if ds else None
 
 
 def rebuild_pop(snap, cfg):
@@ -196,14 +199,13 @@ def collect():
     return data
 
 
-def _plot(ax, data, xkey, ykey, ylabel, title, logy=False):
+def _plot(ax, data, xkey, ykey, ylabel, logy=False):
     for i, s in enumerate(SEEDS):
         if s not in data:
             continue
         x = np.asarray(data[s][xkey], float); y = np.asarray(data[s][ykey], float)
-        ax.plot(x, y, color=OKABE[i], marker=MARKERS[i], ms=4, lw=1.5,
-                label=f"seed {s}")
-    ax.set_xlabel("cycle"); ax.set_ylabel(ylabel); ax.set_title(title)
+        ax.plot(x, y, color=OKABE[i], lw=1.5, label=f"seed {s}")
+    ax.set_xlabel("cycle"); ax.set_ylabel(ylabel)
     if logy:
         ax.set_yscale("log")
 
@@ -217,8 +219,8 @@ def savefig(fig, name):
 
 def make_legend():
     """Standalone shared legend (one entry per seed) for side-placement in LaTeX."""
-    handles = [Line2D([0], [0], color=OKABE[i], marker=MARKERS[i], lw=1.5, ms=5,
-                      label=f"seed {s}") for i, s in enumerate(SEEDS)]
+    handles = [Line2D([0], [0], color=OKABE[i], lw=1.5, label=f"seed {s}")
+               for i, s in enumerate(SEEDS)]
     fig = plt.figure(figsize=(0.95, 1.5))
     fig.legend(handles=handles, loc="center", frameon=False, handlelength=1.6,
                borderaxespad=0)
@@ -275,75 +277,72 @@ def make_gpmap(data):
     axs[1].axis("off")
 
     # Panel 2: redundancy over time (all seeds).
-    _plot(axs[2], data, "cycles", "redundancy", "genotypes / phenotype", "GP-map redundancy")
+    _plot(axs[2], data, "cycles", "redundancy", "genotypes / phenotype")
     savefig(fig, "fig_gpmap.pdf")
 
 
 def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--no-gpmap", dest="gpmap", action="store_false",
+                    help="Skip the GP-map figure (fig_gpmap.pdf) -- it is the most "
+                         "expensive panel (whole-DB bipartite + genotype network).")
+    args = ap.parse_args()
+
     data = collect()
     if not data:
         print("no run data found"); return
     make_legend()
-    make_gpmap(data)
+    if args.gpmap:
+        make_gpmap(data)
+    else:
+        print("[GP-map] skipped (--no-gpmap)")
 
     # ---- Section 1: population ----
-    fig, axs = plt.subplots(1, 3, figsize=(9.5, 2.8))
-    _plot(axs[0], data, "cycles", "alive", "living organisms", "Population size")
-    _plot(axs[1], data, "cycles", "self_rep", "count", "Self-replicators")
+    fig, axs = plt.subplots(1, 4, figsize=(12.5, 2.8))
+    _plot(axs[0], data, "cycles", "alive", "living organisms")
+    _plot(axs[1], data, "cycles", "self_rep", "self-replicators")
+    _plot(axs[2], data, "cycles", "fertile", "fertile organisms")
     for i, s in enumerate(SEEDS):
         if s in data:
-            axs[2].plot(data[s]["birth_cycles"], data[s]["births"], color=OKABE[i],
+            axs[3].plot(data[s]["birth_cycles"], data[s]["births"], color=OKABE[i],
                         lw=1.0, alpha=0.9, label=f"seed {s}")
-    axs[2].set_xlabel("cycle"); axs[2].set_ylabel("births / cycle"); axs[2].set_title("Births")
+    axs[3].set_xlabel("cycle"); axs[3].set_ylabel("births / cycle")
     savefig(fig, "fig_population.pdf")
 
     # ---- Section 2: diversity (genomic | executable phenotype | behavioural phenotype) ----
     fig, axs = plt.subplots(1, 3, figsize=(9.5, 2.8))
-    _plot(axs[0], data, "cycles", "sr_unique_raw", "distinct genomes", "Genomic diversity")
-    # executable panel: two sub-levels -- executed tokens (junk dropped, synonymous
-    # encodings still distinct) vs canonical opcodes (synonymous encodings collapsed)
-    for i, s in enumerate(SEEDS):
-        if s not in data:
-            continue
-        c = np.asarray(data[s]["cycles"], float)
-        axs[1].plot(c, data[s]["sr_unique_exec"], color=OKABE[i], marker=MARKERS[i], ms=4, lw=1.5)
-        axs[1].plot(c, data[s]["sr_unique_eff"], color=OKABE[i], marker=MARKERS[i], ms=3,
-                    lw=1.0, ls="--", alpha=0.7)
-    axs[1].set_xlabel("cycle"); axs[1].set_ylabel("distinct programs")
-    axs[1].set_title("Executable-program diversity\nsolid=executed tokens, dashed=canonical opcodes")
-    _plot(axs[2], data, "cycles", "sr_gest_nunique", "distinct replication speeds", "Behavioural diversity")
+    _plot(axs[0], data, "cycles", "sr_unique_raw", "distinct genomes")
+    # executable panel: canonical opcodes -- junk dropped and synonymous encodings
+    # (different tokens that map to the same command via modulo) collapsed
+    _plot(axs[1], data, "cycles", "sr_unique_eff", "distinct programs")
+    _plot(axs[2], data, "cycles", "sr_gest_nunique", "distinct replication speeds")
     savefig(fig, "fig_diversity.pdf")
 
     # ---- Section 3: genome structure (instruction-set / code / registers separately) ----
     fig, axs = plt.subplots(1, 3, figsize=(9.5, 2.8))
-    _plot(axs[0], data, "cycles", "header", "length (tokens)", "Instruction-set (header) length")
-    _plot(axs[1], data, "cycles", "code", "length (tokens)", "Code-section length")
-    _plot(axs[2], data, "cycles", "registers", "mean # registers", "Registers per organism")
+    _plot(axs[0], data, "cycles", "header", "instruction-set length (tokens)")
+    _plot(axs[1], data, "cycles", "code", "code-section length (tokens)")
+    _plot(axs[2], data, "cycles", "registers", "registers per organism")
     savefig(fig, "fig_genome.pdf")
 
     # ---- Section 4: language ----
     fig, axs = plt.subplots(1, 2, figsize=(6.6, 2.8))
-    _plot(axs[0], data, "cycles", "coding_fraction", "coding fraction", "Coding fraction (executed share)")
-    _plot(axs[1], data, "cycles", "dialect_shannon", "dialect entropy (nats)", "Language diversity (dialects)")
+    _plot(axs[0], data, "cycles", "coding_fraction", "coding fraction")
+    _plot(axs[1], data, "cycles", "dialect_shannon", "dialect entropy (nats)")
     savefig(fig, "fig_language.pdf")
 
     # ---- Section 4b: language -- vocabulary, instructions, recurrence, hierarchy ----
     fig, axs = plt.subplots(2, 2, figsize=(7.0, 5.0))
-    _plot(axs[0, 0], data, "cycles", "opcode_vocab", "# distinct opcodes", "Opcode vocabulary")
+    _plot(axs[0, 0], data, "cycles", "opcode_vocab", "# distinct opcodes")
     for i, s in enumerate(SEEDS):
         if s not in data:
             continue
         c = np.asarray(data[s]["cycles"], float)
-        axs[0, 1].plot(c, data[s]["instructions_defined"], color=OKABE[i], marker=MARKERS[i],
-                       ms=4, lw=1.5)
-        axs[0, 1].plot(c, data[s]["instructions_used"], color=OKABE[i], marker=MARKERS[i],
-                       ms=3, lw=1.0, ls="--", alpha=0.7)
+        axs[0, 1].plot(c, data[s]["instructions_defined"], color=OKABE[i], lw=1.5)
+        axs[0, 1].plot(c, data[s]["instructions_used"], color=OKABE[i], lw=1.0, ls="--", alpha=0.7)
     axs[0, 1].set_xlabel("cycle"); axs[0, 1].set_ylabel("# instructions")
-    axs[0, 1].set_title("Instructions\nsolid=defined, dashed=used")
-    _plot(axs[1, 0], data, "cycles", "instruction_reuse", "refs / used instruction",
-          "Instruction reuse (recurrence)")
-    _plot(axs[1, 1], data, "cycles", "micro_ops_per_instruction", "micro-ops / instruction",
-          "Instruction complexity (hierarchy)")
+    _plot(axs[1, 0], data, "cycles", "instruction_reuse", "refs / used instruction")
+    _plot(axs[1, 1], data, "cycles", "micro_ops_per_instruction", "micro-ops / instruction")
     savefig(fig, "fig_language2.pdf")
 
     print("done.")

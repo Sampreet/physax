@@ -1,9 +1,17 @@
 # The CUDA VM kernel: what it is and what changed
 
-This note explains the `--kernel` backend added to physax: why it exists, how a
-custom CUDA kernel works if you've only used JAX before, the one genuinely
-non-obvious trick that makes it fast (a zero-copy bridge between JAX and Numba),
-and exactly which functions in the codebase changed.
+> **Status:** the CUDA kernel is now the **only** slow-track VM backend for the
+> simulation, so a CUDA GPU is required to run `python -m physax`. The old
+> `--kernel` flag (and the pure-JAX `_vm_jax` sim path it toggled) has been
+> removed. The pure-JAX interpreter (`physax.virtual_machine.VirtualMachine`)
+> still exists as the reference used for offline genome evaluation and for the
+> reproducibility test that validates the kernel. Historical `--kernel` /
+> `use_kernel` references below describe the original change.
+
+This note explains the CUDA VM backend: why it exists, how a custom CUDA kernel
+works if you've only used JAX before, the one genuinely non-obvious trick that
+makes it fast (a zero-copy bridge between JAX and Numba), and exactly which
+functions in the codebase changed.
 
 **Result:** at the experiment size (`pop_size=16384`, `--no-caching`) a cycle went
 from **~1067 ms → ~31 ms**, about **34×**, i.e. ~59 h → ~1.7 h for a 200k-cycle
@@ -15,7 +23,7 @@ an optimization, not a change in behavior.
 ## 1. Why the JAX VM was the bottleneck
 
 The simulation spends almost all its time in `VirtualMachine.update`
-([physax/virtual_machine.py](../physax/virtual_machine.py)): a little interpreter
+([physax/virtual_machine.py](../physax/analysis/virtual_machine.py)): a little interpreter
 that runs each organism's genome as bytecode — fetch an instruction, decode it,
 execute one of 44 opcodes, repeat.
 
@@ -121,7 +129,7 @@ Two facts made this port tractable:
 
 ---
 
-## 3. The kernel — [physax/vm_kernel.py](../physax/vm_kernel.py) (new file)
+## 3. The kernel — [physax/vm_kernel.py](../physax/sim/vm_kernel.py) (new file)
 
 This is the whole new file. Its shape:
 
@@ -167,7 +175,7 @@ dtype"). Numba's `cuda.as_cuda_array(x)` reads that protocol and hands back a
 *view* — no copy. The kernel writes through the view, and because it's the same
 memory, the JAX array now holds the updated values.
 
-That's what `VMRunner.run` does ([physax/vm_kernel.py](../physax/vm_kernel.py)):
+That's what `VMRunner.run` does ([physax/vm_kernel.py](../physax/sim/vm_kernel.py)):
 
 ```python
 v = cuda.as_cuda_array                 # JAX array -> Numba view, zero copy
@@ -193,7 +201,7 @@ buffers), so this also sidesteps GPU out-of-memory issues.
 
 ---
 
-## 5. Wiring it into the cycle — [physax/model.py](../physax/model.py)
+## 5. Wiring it into the cycle — [physax/model.py](../physax/sim/model.py)
 
 A Numba kernel **cannot run inside `jax.jit` / `lax.scan`.** But the original
 `run_simulation` ran many cycles fused inside one big jitted `lax.scan`. So the
@@ -260,8 +268,8 @@ path, which can't collect in Python because it runs inside `lax.scan`.
 
 | File | Change |
 |---|---|
-| **`physax/vm_kernel.py`** | **New file.** The CUDA kernel (`build_vm_kernel`, `vm_kernel`), device helpers (`_clip`, `_tape_read`, `_tape_write`), and the `VMRunner` host driver + zero-copy bridge. |
-| **`physax/model.py`** | `cycle_step` split into `_pre_vm` / `_vm_jax` / `_post_vm`. `_post_vm` gained a static `do_collect` flag and `lax.cond`-gated callbacks. `run_simulation` gained `use_kernel` and `collect_interval`; the kernel path adds `run_chunk` (Python-driven loop + Python genome collection). |
+| **`physax/sim/vm_kernel.py`** | **New file.** The CUDA kernel (`build_vm_kernel`, `vm_kernel`), device helpers (`_clip`, `_tape_read`, `_tape_write`), and the `VMRunner` host driver + zero-copy bridge. |
+| **`physax/sim/model.py`** | `cycle_step` split into `_pre_vm` / `_vm_jax` / `_post_vm`. `_post_vm` gained a static `do_collect` flag and `lax.cond`-gated callbacks. `run_simulation` gained `use_kernel` and `collect_interval`; the kernel path adds `run_chunk` (Python-driven loop + Python genome collection). |
 | **`physax/__main__.py`** | New flags: `--kernel` (use the CUDA backend) and `--collect_interval N` (how often to archive genomes on the kernel path). |
 | **`pyproject.toml`** | Added the `numba-cuda` dependency. |
 
@@ -271,20 +279,21 @@ The pure-JAX path is untouched in behavior and remains the correctness reference
 
 ## 8. Using it, and how we know it's correct
 
-Run with the kernel by adding `--kernel`:
+The kernel is the default (and only) VM backend, so no flag is needed:
 
 ```bash
 python -m physax --pop_size 16384 --initial_pop 50 --total_cycles 200000 \
   --log_interval 50 --seed 62 --no-caching --max_micro_ops 32 \
   --track_lineage --snapshot_interval 1000 --wandb \
-  --kernel --collect_interval 1
+  --collect_interval 1
 ```
 
 **Validation.** Because the VM is deterministic, the kernel was checked to be
 byte-for-byte identical to the JAX VM: first on a toy population over hundreds of
 updates (exercising the `ALLOCATE`/`DIVIDE` paths), then end-to-end — the full
 `pop` and the genome DB match the pure-JAX model exactly, cycle by cycle, with
-caching both on and off. So `--kernel` changes only speed, not results.
+caching both on and off. The reproducibility test still cross-checks kernel
+output against `VirtualMachine`, so the kernel affects only speed, not results.
 
 **Performance summary** (pop 16384, `--no-caching`):
 

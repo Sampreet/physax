@@ -1,9 +1,16 @@
+"""Offline genome evaluation built on the reference JAX VM.
+
+`run_batch_until_division` runs a batch of genomes to (attempted) division;
+`compute_mutational_robustness` does a Monte-Carlo point-mutation robustness
+estimate over sampled genomes. Used by the model's per-cycle robustness metric,
+the reproducibility test, and the evaluation scripts.
+"""
 import jax
 import jax.numpy as jnp
 from jax import random
-from physax.virtual_machine import VirtualMachine
-from physax.config import UNCLASSIFIED, UP_IS_SIZE
-from physax.agent import Agent
+from physax.analysis.virtual_machine import VirtualMachine
+from physax.sim.config import UNCLASSIFIED, UP_IS_SIZE
+from physax.sim.agent import Agent
 
 def run_batch_until_division(agents, max_steps, keys, cfg):
     vm = VirtualMachine(cfg)

@@ -1,7 +1,28 @@
+"""Instruction Set Architecture (ISA) for the Physis virtual machine.
+
+This module defines *what the machine is*, independent of any particular
+simulation run:
+
+  * Opcode constants (``NOP`` … ``IFNOTZERO``) and their human-readable
+    ``OP_NAMES`` / operand-arity ``N_OPERANDS`` lookup tables.
+  * ``OpState`` / ``OpArgs`` — the per-instruction execution state and the
+    decoded-instruction arguments threaded through every opcode.
+  * The memory model helpers ``se_read`` / ``se_write`` (scratch registers)
+    and ``tape_read`` / ``tape_write`` (parent+child genome tape).
+  * ``get_opcode_functions`` — the interpreter core: a list of 44 pure
+    ``(state, args) -> state`` functions dispatched by ``jax.lax.switch`` in
+    :mod:`physax.analysis.virtual_machine`.
+
+The scalar CUDA port in :mod:`physax.sim.vm_kernel` mirrors these semantics
+bit-for-bit; any change to an opcode body here must be mirrored there.
+
+Tunable per-run parameters live in :mod:`physax.sim.config` (``Config``), which
+re-exports everything here so existing ``from physax.sim.config import ...`` call
+sites keep working.
+"""
 import jax.numpy as jnp
 import jax
-from jax import random
-from typing import NamedTuple, Any
+from typing import NamedTuple
 
 NOP = 0
 IN = 1
@@ -51,17 +72,14 @@ IFNOTZERO = 43
 UP_IS_SIZE = 44
 BLANK = -1
 
-HASH_TABLE_SIZE = 1048576 * 2
-EMPTY_KEY = -1
-
 OP_NAMES = {
-    0: 'NOP', 1: 'IN', 2: 'OUT', 3: 'LOAD', 4: 'STORE', 5: 'MOVE', 6: 'ALLOCATE', 
-    7: 'COMPARE', 8: 'IFZERO', 9: 'JUMP', 10: 'DEC', 11: 'INC', 12: 'DIVIDE', 
-    13: 'SDIR', 14: 'GDIR', 15: 'SEND', 16: 'RECEIVE', 17: 'ADD', 18: 'SUB', 
-    19: 'MUL', 20: 'DIV_OP', 21: 'MOD', 22: 'AND', 23: 'OR', 24: 'XOR', 25: 'NEG', 
-    26: 'NOT', 27: 'SHIFT_L', 28: 'SHIFT_R', 29: 'FORK_TH', 30: 'KILL_TH', 
-    31: 'R', 32: 'S', 33: 'Q', 34: 'I', 35: 'B', 36: 'SEP', 37: 'CLEAR', 
-    38: 'CINC', 39: 'CDEC', 40: 'IS_SEP', 41: 'REL_LOAD', 42: 'REL_STORE', 
+    0: 'NOP', 1: 'IN', 2: 'OUT', 3: 'LOAD', 4: 'STORE', 5: 'MOVE', 6: 'ALLOCATE',
+    7: 'COMPARE', 8: 'IFZERO', 9: 'JUMP', 10: 'DEC', 11: 'INC', 12: 'DIVIDE',
+    13: 'SDIR', 14: 'GDIR', 15: 'SEND', 16: 'RECEIVE', 17: 'ADD', 18: 'SUB',
+    19: 'MUL', 20: 'DIV_OP', 21: 'MOD', 22: 'AND', 23: 'OR', 24: 'XOR', 25: 'NEG',
+    26: 'NOT', 27: 'SHIFT_L', 28: 'SHIFT_R', 29: 'FORK_TH', 30: 'KILL_TH',
+    31: 'R', 32: 'S', 33: 'Q', 34: 'I', 35: 'B', 36: 'SEP', 37: 'CLEAR',
+    38: 'CINC', 39: 'CDEC', 40: 'IS_SEP', 41: 'REL_LOAD', 42: 'REL_STORE',
     43: 'IFNOTZERO'
 }
 
@@ -112,51 +130,6 @@ N_OPERANDS = jnp.array([
     1,  # 43: IFNOTZERO
 ], dtype=jnp.int32)
 
-# SS: plotting values for percentile plots
-LS = ['dotted','dashdot','dashed','solid','dashed','dashdot','dotted']
-PERCENTILES = jnp.array([5,10,25,50,75,90,95])
-
-
-class Config:
-    """Simulation configuration with fixed sizes for JAX."""
-    max_genome_len: int = 256
-    max_se_count: int = 16
-    max_instructions: int = 64
-    max_micro_ops: int = 32
-    pop_size: int = 1024
-    initial_pop: int = 1
-
-    steps_per_update: int = 34
-    copy_mutation_rate: float = 0.009
-    divide_mutation_rate: float = 0.0
-    divide_insert_rate: float = 0.0013
-    divide_delete_rate: float = 0.0013
-    min_allocation_ratio: float = 0.5
-    max_allocation_ratio: float = 2.0
-    min_proliferation_ratio: float = 0.80
-
-    use_species_color: bool = True
-    caching: bool = True
-
-
-def make_config(**kwargs) -> Config:
-    """Create config with optional overrides."""
-    cfg = Config()
-    for k, v in kwargs.items():
-        setattr(cfg, k, v)
-    return cfg
-
-
-# Genome Classification Status
-UNCLASSIFIED = 0
-SELF_REPLICATING = 1
-FERTILE = 2
-NON_FERTILE = 3
-NON_STANDARD = 4
-
-# Execution Routes
-FAST_TRACK = 0
-SLOW_TRACK = 1
 
 class OpState(NamedTuple):
     se_vals: jnp.ndarray
@@ -186,10 +159,10 @@ class OpArgs(NamedTuple):
     ip_for_overflow: jnp.ndarray
 
 
-def se_read(state: OpState, args: OpArgs, cfg: Config, idx):
+def se_read(state: OpState, args: OpArgs, cfg, idx):
     return state.se_vals[jnp.clip(idx, 0, cfg.max_se_count - 1)]
 
-def se_write(state: OpState, args: OpArgs, cfg: Config, idx, val):
+def se_write(state: OpState, args: OpArgs, cfg, idx, val):
     return state._replace(
         se_vals=state.se_vals.at[jnp.clip(idx, 0, cfg.max_se_count - 1)].set(val)
     )
@@ -203,7 +176,7 @@ def tape_read(state: OpState, args: OpArgs, position):
     child_val = state.child_arr[child_idx]
     return jnp.where(in_parent, parent_val, child_val)
 
-def tape_write(state: OpState, args: OpArgs, cfg: Config, position, value):
+def tape_write(state: OpState, args: OpArgs, cfg, position, value):
     total_size = jnp.maximum(args.tape_size, 1)
     pos = jnp.abs(position) % total_size
     in_parent = pos < args.genome_len
@@ -215,8 +188,8 @@ def tape_write(state: OpState, args: OpArgs, cfg: Config, position, value):
     # Child write
     child_idx = jnp.clip(pos - args.genome_len, 0, state.child_l - 1)
     in_child = ~in_parent & state.already_alloc
-    # Copy mutation must NOT be applied here because the CUDA kernel (vm_kernel.py) 
-    # cannot easily execute random ops per-instruction. It is instead applied at 
+    # Copy mutation must NOT be applied here because the CUDA kernel (vm_kernel.py)
+    # cannot easily execute random ops per-instruction. It is instead applied at
     # the end of division in Agent.apply_divide_mutations.
     # k1, k2 = random.split(args.step_key)
     # do_mutate = random.uniform(k1) < cfg.copy_mutation_rate
@@ -230,9 +203,9 @@ def tape_write(state: OpState, args: OpArgs, cfg: Config, position, value):
     return state._replace(genome_arr=new_genome, child_arr=new_child, child_cop=new_child_cop)
 
 
-def get_opcode_functions(cfg: Config):
+def get_opcode_functions(cfg):
     """Returns a list of 44 pure functions mapping (state, args) -> state for jax.lax.switch."""
-    
+
     def op_nop(op_input) -> OpState:
         state, args = op_input
         """No operation."""
@@ -243,13 +216,13 @@ def get_opcode_functions(cfg: Config):
         """Load from tape at address SE[o0] into SE[o1]."""
         addr = se_read(state, args, cfg, args.o0)
         val = tape_read(state, args, addr)
-        
+
         # Track if read from child
         total_size = jnp.maximum(args.tape_size, 1)
         pos = jnp.abs(addr) % total_size
         read_child = pos >= args.genome_len
         state = state._replace(read_from_child=state.read_from_child | read_child)
-        
+
         return se_write(state, args, cfg, args.o1, val)
 
     def op_store(op_input) -> OpState:
@@ -273,7 +246,7 @@ def get_opcode_functions(cfg: Config):
         )
         blank_child = jnp.full(cfg.max_genome_len, BLANK, dtype=jnp.int32)
         blank_cop = jnp.zeros(cfg.max_genome_len, dtype=jnp.bool_)
-        
+
         return state._replace(
             already_alloc=jnp.where(alloc_possible, True, state.already_alloc),
             child_l=jnp.where(alloc_possible, alloc_size, state.child_l),
@@ -314,10 +287,10 @@ def get_opcode_functions(cfg: Config):
         """Trigger cell division if copying thresholds are met."""
         n_copied = jnp.sum(state.child_cop.astype(jnp.int32))
         prolif_possible = state.already_alloc & (n_copied > (cfg.min_proliferation_ratio * args.genome_len).astype(jnp.int32))
-        
+
         new_se_vals = jnp.where(
-            ~prolif_possible, 
-            state.se_vals.at[jnp.clip(jnp.int32(0), 0, cfg.max_se_count - 1)].set(se_read(state, args, cfg, jnp.int32(0)) + 1), 
+            ~prolif_possible,
+            state.se_vals.at[jnp.clip(jnp.int32(0), 0, cfg.max_se_count - 1)].set(se_read(state, args, cfg, jnp.int32(0)) + 1),
             state.se_vals
         )
         return state._replace(

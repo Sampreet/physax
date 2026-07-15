@@ -4,10 +4,10 @@ import numpy as np
 import json
 import jax
 import jax.numpy as jnp
-from physax.config import make_config, UNCLASSIFIED, SELF_REPLICATING, FERTILE
-from physax.agent import Agent
-from physax.virtual_machine import VirtualMachine
-from physax.genome_evaluator import run_batch_until_division
+from physax.sim.config import make_config, UNCLASSIFIED, SELF_REPLICATING, FERTILE
+from physax.sim.agent import Agent
+from physax.analysis.virtual_machine import VirtualMachine
+from physax.analysis.genome_evaluator import run_batch_until_division
 from decode_genome_illustration import decode_genome
 import os
 import random

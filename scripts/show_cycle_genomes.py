@@ -5,9 +5,9 @@ import pickle
 from pathlib import Path
 
 # Resolve status constants directly to decouple from external dependencies if possible,
-# or we can import them from physax.config. Let's do both safely.
+# or we can import them from physax.sim.config. Let's do both safely.
 try:
-    from physax.config import (
+    from physax.sim.config import (
         UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
     )
 except ImportError:

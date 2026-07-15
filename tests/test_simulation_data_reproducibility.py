@@ -9,14 +9,14 @@ import pytest
 from dotenv import load_dotenv
 from pathlib import Path
 
-from physax.config import make_config
-from physax.model import Model, init_genome_db
+from physax.sim.config import make_config
+from physax.sim.model import Model, init_genome_db
 import subprocess
 import sys
 import pickle
-from physax.genome_evaluator import run_batch_until_division
-from physax.agent import Agent
-from physax.config import SELF_REPLICATING, FERTILE, UNCLASSIFIED
+from physax.analysis.genome_evaluator import run_batch_until_division
+from physax.sim.agent import Agent
+from physax.sim.config import SELF_REPLICATING, FERTILE, UNCLASSIFIED
 
 
 def test_simulation_data_reproducibility():
@@ -41,7 +41,6 @@ def test_simulation_data_reproducibility():
         "--snapshot_interval", "1",
         "--lineage_dir", test_dir,
         "--seed", "42",
-        "--kernel",
         "--copy_mutation_rate", "0.05",
         "--divide_mutation_rate", "0.01",
         "--divide_insert_rate", "0.01",

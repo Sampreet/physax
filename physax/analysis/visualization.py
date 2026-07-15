@@ -1,3 +1,10 @@
+"""Matplotlib / GIF rendering of simulation outputs.
+
+Metric plots, grid/physis/3-panel GIFs, gestation-diversity and
+unique-genome-over-time plots, plus the `generate_all_visualizations`
+orchestrator and a `__main__` block to regenerate figures from a pickled stats
+file.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
@@ -8,8 +15,9 @@ try:
 except ImportError:
     imageio = None
 
-from physax.config import LS, PERCENTILES
-from physax.analysis import compute_snapshot_properties
+from physax.sim.config import LS
+from physax.analysis._util import fold_hash
+from physax.analysis.gp_map import compute_snapshot_properties
 
 
 # SS: use percentiles not avg -- include births
@@ -369,7 +377,7 @@ def plot_gestation_and_diversity(stats, filename="gestation_diversity.png"):
     """
     Plot the average gestation period and diversity of self-replicating/fertile agents over time.
     """
-    from physax.config import UNCLASSIFIED, NON_FERTILE, SELF_REPLICATING, FERTILE
+    from physax.sim.config import UNCLASSIFIED, NON_FERTILE, SELF_REPLICATING, FERTILE
     
     cycles = []
     
@@ -394,7 +402,7 @@ def plot_gestation_and_diversity(stats, filename="gestation_diversity.png"):
         gest_times = snap['gestation_time']
         hashes = snap['hash']
         if hashes.ndim == 2:
-            hashes = (hashes[:, 0].astype(np.int64) << 32) | (hashes[:, 1].astype(np.uint32).astype(np.int64))
+            hashes = fold_hash(hashes)
         
         cycles.append(cycle)
         
@@ -505,7 +513,7 @@ def plot_unique_over_time(stats, filename="unique_over_time.png"):
         alive = snap['alive']
         hashes = snap['hash']
         if hashes.ndim == 2:
-            hashes = (hashes[:, 0].astype(np.int64) << 32) | (hashes[:, 1].astype(np.uint32).astype(np.int64))
+            hashes = fold_hash(hashes)
 
         cycles.append(cycle)
 
@@ -517,7 +525,6 @@ def plot_unique_over_time(stats, filename="unique_over_time.png"):
 
         # Panel 1: Unique Hash
         hash_vals = snap.get('hash', np.zeros_like(alive, dtype=np.uint32))
-        print("hash_vals.shape", hash_vals.shape)
         if hash_vals.ndim == 2:
             hash_vals = hash_vals[:, 0]
 
@@ -562,8 +569,8 @@ def plot_unique_over_time(stats, filename="unique_over_time.png"):
 
 def generate_all_visualizations(stats, output_dir, cfg=None):
     from pathlib import Path
-    from physax.genome_analysis import analyze_and_plot_top_genomes
-    from physax.config import make_config
+    from physax.analysis.genome_stats import analyze_and_plot_top_genomes
+    from physax.sim.config import make_config
     
     path = Path(output_dir)
     if not path.exists():

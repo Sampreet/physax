@@ -47,7 +47,7 @@ sections divided by a single `SEP` (separator) token:
 - **Program part** (after `SEP`): the actual executed code — a sequence of **indices into the
   instruction table** built from the definitions above.
 
-Parsing happens in [`agent.py`](../physax/agent.py):
+Parsing happens in [`agent.py`](../physax/sim/agent.py):
 - `_build_structure` scans up to `SEP`, counts SEs, and records the separator position.
 - `_build_instruction_set` scans the `I` markers before `SEP` and compiles each definition into a
   normalized micro-op row of the `instruction_table` (opcodes normalized via `abs(v) % 44`, operand
@@ -61,7 +61,7 @@ a child tape, copies itself gene-by-gene into it, and calls `DIVIDE`.
 
 ## 3. The instruction set (opcodes)
 
-Opcodes and their operand counts are defined in [`config.py`](../physax/config.py) (`OP_NAMES`,
+Opcodes and their operand counts are defined in [`isa.py`](../physax/sim/isa.py) (`OP_NAMES`,
 `N_OPERANDS`). The executable bodies live in `get_opcode_functions`, which returns 44 pure
 `(state, args) -> state` functions dispatched by `jax.lax.switch`. Categories:
 
@@ -84,7 +84,8 @@ requirement that no instruction can crash the processor.
 
 ## 4. Execution model
 
-One organism is stepped by the **`VirtualMachine`** in [`virtual_machine.py`](../physax/virtual_machine.py):
+The VM semantics are defined by the reference **`VirtualMachine`** in [`virtual_machine.py`](../physax/analysis/virtual_machine.py)
+(the simulation itself runs the bitwise-identical CUDA port in `sim/vm_kernel.py`; see [cuda_kernel.md](cuda_kernel.md)):
 
 - `update` runs `steps_per_update` (= 34) compound instructions via `lax.scan`, but only for organisms
   that are `alive` and have not just produced a child.
@@ -96,7 +97,7 @@ One organism is stepped by the **`VirtualMachine`** in [`virtual_machine.py`](..
      into the tape, advancing the IP (the `fillOperands` logic). It then dispatches the opcode with
      `lax.switch`.
   3. **Advance IP** by 1, unless the instruction jumped or the organism just divided.
-- The **`OpState` / `OpArgs`** split (in `config.py`) separates the mutable per-op state (SE values,
+- The **`OpState` / `OpArgs`** split (in `isa.py`) separates the mutable per-op state (SE values,
   child tape, allocation flags, …) from the read-only per-op arguments (keys, sizes, decoded
   operands). This split gave the ~30% speedup noted in the git history.
 
@@ -107,7 +108,7 @@ computation.
 
 ## 5. Replication, mutation, and the population loop
 
-The **`Model`** in [`model.py`](../physax/model.py) ties everything together and runs the
+The **`Model`** in [`model.py`](../physax/sim/model.py) ties everything together and runs the
 population-level simulation.
 
 **Replication.** An organism reproduces by:
@@ -117,14 +118,15 @@ population-level simulation.
 
 **Mutation** happens at two points:
 - **Copy mutation** (`copy_mutation_rate` = 0.009): during copying, a gene may be replaced by a random
-  one (in `tape_write`, `config.py`).
+  one (in `tape_write`, `isa.py`).
 - **Divide mutations** (`Agent.apply_divide_mutations`): after a successful divide, the child tape may
   undergo a point substitution, an insertion, or a deletion (`divide_insert_rate` /
   `divide_delete_rate` = 0.0013). Insertions/deletions change genome length — this is how the paper's
   variable-length structural/instruction-set evolution actually occurs.
 
-**Cycle** (`cycle_step`), run once per simulation tick over the whole population:
-1. **Execute** every alive organism (`vmap` over the VM's `update`).
+**Cycle**, run once per simulation tick over the whole population:
+1. **Execute** every alive organism on the CUDA VM kernel (`sim/vm_kernel.py`), which reproduces the
+   `VirtualMachine` semantics above bit-for-bit.
 2. **Age** everyone.
 3. **Birth**: for organisms that divided, build the mutated child genome and re-parse it into a fresh
    `Agent` (so the child's processor/instruction set is re-derived from its possibly-mutated genome).
@@ -143,11 +145,11 @@ snapshots.
 
 ## 6. Analysis & visualization
 
-- [`analysis.py`](../physax/analysis.py) — `compute_snapshot_properties` computes, per organism,
+- [`gp_map.py`](../physax/analysis/gp_map.py) — `compute_snapshot_properties` computes, per organism,
   **effective length** (executed genes), **merit** (= effective length, no external tasks), and
   **fitness** (= merit / gestation time). Fitness is only nonzero for organisms that actually
   reproduced.
-- [`visualization.py`](../physax/visualization.py) —
+- [`visualization.py`](../physax/analysis/visualization.py) —
   - `plot_metrics`: population size + births + genome-length percentiles over time.
   - `save_grid_gif`: an animation of the 2-D population grid coloured by lineage.
   - `save_physis_view_gif`: a richer per-organism view.
@@ -183,21 +185,36 @@ Edit `physax/__main__.py` (or pass overrides through `make_config`) to change `p
 `evolution.gif`.
 
 There is also a standalone script, [`ancestor_full_division_illustration.py`](../scripts/ancestor_full_division_illustration.py),
-which traces a single ancestor organism through one complete replication for debugging/illustration,
-and a self-contained monolithic port in the top-level [`__main__.py`](../__main__.py) (the code was
-later split into the `physax/` package for readability).
+which traces a single ancestor organism through one complete replication for debugging/illustration.
 
 ---
 
 ## 9. File map
 
+The package is split into `physax/sim/` (the engine that *runs* a simulation)
+and `physax/analysis/` (post-hoc measurement, evaluation, and visualization of a
+run's outputs).
+
+**`physax/sim/` — simulation engine**
+
 | File | Role |
 |---|---|
-| `physax/config.py` | Opcode constants, `N_OPERANDS`, `Config`, `OpState`/`OpArgs`, opcode function bodies |
-| `physax/agent.py` | `Agent` state, genome parsing (structure + instruction set), ancestor genome, divide mutations |
-| `physax/virtual_machine.py` | Single-organism execution (fetch → micro-op scan → dispatch) |
-| `physax/model.py` | Population init, per-cycle loop, birth/placement/mutation, run loop, logging |
-| `physax/analysis.py` | Fitness / merit / effective-length computation |
-| `physax/visualization.py` | Metric plots and grid/organism GIFs |
+| `sim/isa.py` | Opcode constants, `OP_NAMES`, `N_OPERANDS`, `OpState`/`OpArgs`, tape/register helpers, `get_opcode_functions` (interpreter core) |
+| `sim/config.py` | `Config`/`make_config`, GenomeDB sizing, classification/route enums, plotting constants; re-exports `isa` |
+| `sim/agent.py` | `Agent` state, genome parsing (structure + instruction set), ancestor genome, divide mutations |
+| `sim/vm_kernel.py` | The Numba CUDA VM (`build_vm_kernel`, `VMRunner`) — the only slow-track execution backend |
+| `sim/classification.py` | Per-cycle genome classification / execution routing / cycle stats (JAX) |
+| `sim/model.py` | Population init, per-cycle loop, birth/placement/mutation, run loop, logging |
+
+**`physax/analysis/` — post-hoc analysis**
+
+| File | Role |
+|---|---|
+| `analysis/virtual_machine.py` | Reference JAX interpreter (single-organism fetch → scan → dispatch); offline eval + kernel validation |
+| `analysis/genome_evaluator.py` | Batch genome evaluation / mutational robustness |
+| `analysis/gp_map.py` | Genotype-phenotype map structure; `compute_snapshot_properties` (fitness / merit / effective length) |
+| `analysis/genome_stats.py` | Diversity/gestation and emergent-language statistics, top-genome plots |
+| `analysis/visualization.py` | Metric plots and grid/organism GIFs |
+| `analysis/wandb_logger.py` | Weights & Biases logging and end-of-run reports |
 | `physax/__main__.py` | Entry point wiring config → model → plots |
 ```

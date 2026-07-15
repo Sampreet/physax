@@ -1,10 +1,9 @@
 import jax
 import jax.numpy as jnp
 from jax import random
-from physax.config import make_config, PERCENTILES, UNCLASSIFIED
-from physax.model import Model
-from physax.agent import Agent
-from physax.visualization import generate_all_visualizations
+from physax.sim.config import make_config, PERCENTILES, UNCLASSIFIED
+from physax.sim.model import Model
+from physax.analysis.visualization import generate_all_visualizations
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -41,15 +40,11 @@ if __name__ == "__main__":
                         help="directory to write lineage edge files into (with --track_lineage). "
                              "Defaults to a 'lineage' folder inside this run's output directory so "
                              "each run's genealogy is isolated; pass a path to override.")
-    parser.add_argument('--kernel', dest='use_kernel', action='store_true',
-                        help='Use the CUDA VM kernel (physax.vm_kernel) for slow-track '
-                             'execution instead of the JAX interpreter (much faster).')
     parser.add_argument('--collect_interval', type=int, default=None,
                         help='Collect self-replicator/fertile genomes (for end-of-run '
                              'reports) every N cycles instead of every cycle. The per-cycle '
-                             'collection host-transfer dominates runtime once the kernel is on '
-                             'but does NOT affect the simulation trajectory. Kernel path only; '
-                             'defaults to --log_interval when --kernel is set, else 1.')
+                             'collection host-transfer dominates runtime but does NOT affect '
+                             'the simulation trajectory. Defaults to --log_interval.')
     parser.add_argument('--no-caching', dest='caching', action='store_false', help='Keep all genomes on the slow track all the time')
     parser.add_argument('--no-compile-cache', dest='compile_cache', action='store_false', help='Disable the JAX persistent compilation cache')
     args = parser.parse_args()
@@ -120,16 +115,14 @@ if __name__ == "__main__":
             track_lineage=args.track_lineage,
             lineage_dir=lineage_dir,
             snapshot_interval=args.snapshot_interval,
-            use_kernel=args.use_kernel,
-            # On the kernel path, genome collection runs in Python (no in-graph
-            # jax.debug.callback, which would force a ~90 ms/cycle host-sync
-            # barrier). Every-cycle collection still costs ~85 ms/cycle (standing-
-            # set transfer + dict scan); every log_interval cycles it is ~31 ms
-            # (~34x vs the JAX baseline) and archives the same established genomes.
-            # Default to log_interval under --kernel; the JAX path stays every cycle.
+            # Genome collection runs in Python (no in-graph jax.debug.callback,
+            # which would force a ~90 ms/cycle host-sync barrier). Every-cycle
+            # collection still costs ~85 ms/cycle (standing-set transfer + dict
+            # scan); every log_interval cycles it is ~31 ms and archives the same
+            # established genomes. Default the cadence to log_interval.
             collect_interval=(
                 args.collect_interval if args.collect_interval is not None
-                else (log_interval if args.use_kernel else 1)
+                else log_interval
             ),
         )
     except Exception as e:
@@ -147,7 +140,7 @@ if __name__ == "__main__":
     if len(stats) > 0:
         top_hashes = generate_all_visualizations(stats, path, cfg)
 
-        from physax.model import global_self_replicating_genomes, global_fertile_genomes
+        from physax.sim.model import global_self_replicating_genomes, global_fertile_genomes
 
         all_genomes_dict = {f"{h[0]}_{h[1]}" if isinstance(h, tuple) else str(h): g for h, g in global_self_replicating_genomes.items()}
         if all_genomes_dict:
