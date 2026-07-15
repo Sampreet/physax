@@ -4,7 +4,7 @@
   <img src="docs/schematic.png" alt="Physax schematic" width="700">
 </p>
 
-<p align="center">
+<p align="justify">
   <em>Illustration of the Physis framework: A) There is a fixed set of basic instructions, called opcodes, that cover different types of operations that can be performaned on a tape and registers B) The system lives on a two-dimensional grid where each cell contains a tape. At each step of the simulation a tape executes on a virtual machine. If during its execution it performs the right operations to create a copy of itself, this copy will occupy a random cell in the neighborhood of the current cell C) The tape is divided into three parts: a number indicating how many registers we have (there is always an Instruction Pointer indicating the next instruction to execute and the number of registers can vary), the language part is a set of high-level instructions (separated by the delimiter I) that are combinations of the opcodes and the program part is a set of numbers corresponding to insturctions from the language. At the beginning of the execution the IP always points to the first element in the program. .</em>
 </p>
 
@@ -46,13 +46,3 @@ its own device (`CUDA_VISIBLE_DEVICES=<gpu>`). Flag notes:
 
 Runs land in `output/run_200000_cycles_seed_<seed>_<timestamp>/`.
 
-### Producing the figures and the report
-
-`docs/make_figures.py` picks up the newest run per seed under `output/`, recomputes the
-per-snapshot metrics (cached in `<run>/figure_cache.pkl`), and writes PDFs into
-`docs/figures/`.
-
-```bash
-JAX_PLATFORMS=cpu python docs/make_figures.py
-cd docs && pdflatex experiment_summary.tex
-```
