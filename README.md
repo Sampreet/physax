@@ -1,4 +1,4 @@
-# Physax: A JAX implementation of Physis
+# Physis: a GPU implemenation of an automata chemistry that evolves the programming language
 
 <p align="center">
   <img src="docs/schematic.svg" alt="Physax schematic" width="700">
@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <em>TODO: caption.</em>
+  <em>TODO: Visualizing the dynamics of the simulation.</em>
 </p>
 
 #### Installation
@@ -53,4 +53,25 @@ its own device (`CUDA_VISIBLE_DEVICES=<gpu>`). Flag notes:
   `<run>/lineage/snapshot_<cycle>.npz` (needed for the figures).
 
 Runs land in `output/run_200000_cycles_seed_<seed>_<timestamp>/`.
+
+### Producing the visualizations
+
+Every run generates its figures automatically when it finishes, writing them into
+its own `output/run_.../` folder:
+
+- `evolution_3panel.gif` — animated 3-panel spatial view of the grid over the run.
+- `unique_over_time.png` — stackplot of unique genomes (by hash) over cycles.
+- `simulation_metrics.png`, `gestation_diversity.png`, `top_genomes_*.png` — summary plots.
+
+To (re)generate them from a finished run without re-simulating, point the standalone
+renderer at the run folder. It loads that run's `simulation_stats.pkl` and rewrites all
+figures in place:
+
+```bash
+python -m physax.analysis.visualization --folder run_200000_cycles_seed_62_<timestamp>
+```
+
+`--folder` is a folder name inside the base path (`output/` by default, or `$BASE_PATH`
+from a `.env` file). Omit `--folder` to auto-select the most recent `run_*` folder. The
+run's `simulation_stats.pkl` can be tens of GB, so the load takes a minute or two.
 

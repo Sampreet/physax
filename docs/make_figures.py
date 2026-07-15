@@ -35,6 +35,7 @@ plt.rcParams.update({
     "font.family": "serif", "font.size": 9, "axes.titlesize": 9,
     "axes.labelsize": 9, "legend.fontsize": 7.5, "figure.dpi": 150,
     "axes.spines.top": False, "axes.spines.right": False,
+    "axes.formatter.use_mathtext": True,
     "axes.grid": True, "grid.alpha": 0.25, "grid.linewidth": 0.5,
 })
 
@@ -211,6 +212,11 @@ def _plot(ax, data, xkey, ykey, ylabel, logy=False):
 
 
 def savefig(fig, name):
+    # Cycle axes run to 2e5; show ticks in scientific notation (shared x10^n
+    # offset at the axis end) instead of long strings of trailing zeros.
+    for ax in fig.axes:
+        if ax.get_xlabel() == "cycle":
+            ax.ticklabel_format(axis="x", style="sci", scilimits=(0, 0))
     fig.tight_layout()
     p = os.path.join(FIGDIR, name)
     fig.savefig(p, bbox_inches="tight"); plt.close(fig)
@@ -331,18 +337,21 @@ def main():
     _plot(axs[1], data, "cycles", "dialect_shannon", "dialect entropy (nats)")
     savefig(fig, "fig_language.pdf")
 
-    # ---- Section 4b: language -- vocabulary, instructions, recurrence, hierarchy ----
-    fig, axs = plt.subplots(2, 2, figsize=(7.0, 5.0))
-    _plot(axs[0, 0], data, "cycles", "opcode_vocab", "# distinct opcodes")
+    # ---- Section 4b: language -- instructions, recurrence, hierarchy ----
+    fig, axs = plt.subplots(1, 3, figsize=(9.5, 2.8))
     for i, s in enumerate(SEEDS):
         if s not in data:
             continue
         c = np.asarray(data[s]["cycles"], float)
-        axs[0, 1].plot(c, data[s]["instructions_defined"], color=OKABE[i], lw=1.5)
-        axs[0, 1].plot(c, data[s]["instructions_used"], color=OKABE[i], lw=1.0, ls="--", alpha=0.7)
-    axs[0, 1].set_xlabel("cycle"); axs[0, 1].set_ylabel("# instructions")
-    _plot(axs[1, 0], data, "cycles", "instruction_reuse", "refs / used instruction")
-    _plot(axs[1, 1], data, "cycles", "micro_ops_per_instruction", "micro-ops / instruction")
+        axs[0].plot(c, data[s]["instructions_defined"], color=OKABE[i], lw=1.5)
+        axs[0].plot(c, data[s]["instructions_used"], color=OKABE[i], lw=1.0, ls="--", alpha=0.7)
+    axs[0].set_xlabel("cycle"); axs[0].set_ylabel("# instructions")
+    # solid = total defined in the instruction set, dashed = actually referenced by code
+    axs[0].legend(handles=[Line2D([], [], color="0.3", lw=1.5, label="total"),
+                           Line2D([], [], color="0.3", lw=1.0, ls="--", label="used")],
+                  loc="best", frameon=False)
+    _plot(axs[1], data, "cycles", "instruction_reuse", "refs / used instruction")
+    _plot(axs[2], data, "cycles", "micro_ops_per_instruction", "micro-ops / instruction")
     savefig(fig, "fig_language2.pdf")
 
     print("done.")
