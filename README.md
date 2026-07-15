@@ -1,7 +1,7 @@
 # Physax: A JAX implementation of Physis
 
 <p align="center">
-  <img src="docs/schematic.svg" alt="Physax schematic" width="700">
+  <img src="docs/schematic.png" alt="Physax schematic" width="700">
 </p>
 
 <p align="center">
