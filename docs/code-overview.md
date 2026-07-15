@@ -182,7 +182,7 @@ Edit `physax/__main__.py` (or pass overrides through `make_config`) to change `p
 `initial_pop`, `total_cycles`, and `log_interval`. It produces `simulation_metrics.png` and
 `evolution.gif`.
 
-There is also a standalone script, [`ancestor_full_division_illustration.py`](../ancestor_full_division_illustration.py),
+There is also a standalone script, [`ancestor_full_division_illustration.py`](../scripts/ancestor_full_division_illustration.py),
 which traces a single ancestor organism through one complete replication for debugging/illustration,
 and a self-contained monolithic port in the top-level [`__main__.py`](../__main__.py) (the code was
 later split into the `physax/` package for readability).
