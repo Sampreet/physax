@@ -9,14 +9,14 @@ import pytest
 from dotenv import load_dotenv
 from pathlib import Path
 
-from physax.sim.config import make_config
-from physax.sim.model import Model, init_genome_db
+from physis.sim.config import make_config
+from physis.sim.model import Model, init_genome_db
 import subprocess
 import sys
 import pickle
-from physax.analysis.genome_evaluator import run_batch_until_division
-from physax.sim.agent import Agent
-from physax.sim.config import SELF_REPLICATING, FERTILE, UNCLASSIFIED
+from physis.analysis.genome_evaluator import run_batch_until_division
+from physis.sim.agent import Agent
+from physis.sim.config import SELF_REPLICATING, FERTILE, UNCLASSIFIED
 
 
 def test_simulation_data_reproducibility():
@@ -32,7 +32,7 @@ def test_simulation_data_reproducibility():
     print("\n--- STEP 1: Running Simulation via __main__.py ---")
     
     cmd = [
-        sys.executable, "-m", "physax.__main__",
+        sys.executable, "-m", "physis.__main__",
         "--pop_size", "256",
         "--initial_pop", "256",
         "--total_cycles", "1000",

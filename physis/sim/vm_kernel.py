@@ -2,7 +2,7 @@
 
 One CUDA thread runs one organism: it interprets that organism's genome for
 `steps_per_update` compound instructions, exactly reproducing the semantics of
-physax/virtual_machine.py so results are bitwise-identical to the JAX VM.
+physis/virtual_machine.py so results are bitwise-identical to the JAX VM.
 
 Why this exists: under jax.vmap the opcode dispatch (lax.switch over 44 ops)
 evaluates *every* branch for *every* agent at *every* micro-op, and all state
@@ -18,7 +18,7 @@ import numpy as np
 import jax
 from numba import cuda, int32
 
-# --- constants mirrored from physax/config.py (kept in sync by value) ---
+# --- constants mirrored from physis/config.py (kept in sync by value) ---
 BLANK = -1
 SEP = 36
 NOP = 0

@@ -11,13 +11,13 @@ simulation run:
     and ``tape_read`` / ``tape_write`` (parent+child genome tape).
   * ``get_opcode_functions`` — the interpreter core: a list of 44 pure
     ``(state, args) -> state`` functions dispatched by ``jax.lax.switch`` in
-    :mod:`physax.analysis.virtual_machine`.
+    :mod:`physis.analysis.virtual_machine`.
 
-The scalar CUDA port in :mod:`physax.sim.vm_kernel` mirrors these semantics
+The scalar CUDA port in :mod:`physis.sim.vm_kernel` mirrors these semantics
 bit-for-bit; any change to an opcode body here must be mirrored there.
 
-Tunable per-run parameters live in :mod:`physax.sim.config` (``Config``), which
-re-exports everything here so existing ``from physax.sim.config import ...`` call
+Tunable per-run parameters live in :mod:`physis.sim.config` (``Config``), which
+re-exports everything here so existing ``from physis.sim.config import ...`` call
 sites keep working.
 """
 import jax.numpy as jnp

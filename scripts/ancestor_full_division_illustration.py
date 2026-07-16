@@ -19,9 +19,9 @@ class TeeLogger:
         self.terminal.flush()
         self.log.flush()
 
-from physax.sim.config import make_config, BLANK, OP_NAMES, N_OPERANDS, UNCLASSIFIED
-from physax.sim.agent import Agent
-from physax.analysis.virtual_machine import VirtualMachine
+from physis.sim.config import make_config, BLANK, OP_NAMES, N_OPERANDS, UNCLASSIFIED
+from physis.sim.agent import Agent
+from physis.analysis.virtual_machine import VirtualMachine
 
 def decode_compound(ops_arr):
     i = 0

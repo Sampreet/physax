@@ -12,18 +12,18 @@ to change between experiments:
   * Plotting defaults (``LS`` line styles, ``PERCENTILES``).
 
 The virtual machine's *instruction set* (opcodes, operand tables, ``OpState`` /
-``OpArgs``, tape helpers, ``get_opcode_functions``) lives in :mod:`physax.sim.isa`.
-It is re-exported here via ``from physax.sim.isa import *`` so that existing
-``from physax.sim.config import ...`` call sites (opcode constants, ``OP_NAMES``,
+``OpArgs``, tape helpers, ``get_opcode_functions``) lives in :mod:`physis.sim.isa`.
+It is re-exported here via ``from physis.sim.isa import *`` so that existing
+``from physis.sim.config import ...`` call sites (opcode constants, ``OP_NAMES``,
 ``N_OPERANDS``, etc.) continue to work unchanged.
 """
 import jax.numpy as jnp
 
-# Re-export the instruction set so `from physax.sim.config import <opcode/...>`
-# keeps working. New code should prefer importing these from `physax.sim.isa`.
-from physax.sim.isa import *  # noqa: F401,F403
+# Re-export the instruction set so `from physis.sim.config import <opcode/...>`
+# keeps working. New code should prefer importing these from `physis.sim.isa`.
+from physis.sim.isa import *  # noqa: F401,F403
 
-# GenomeDB hash-table sizing (see physax.sim.model.GenomeDB).
+# GenomeDB hash-table sizing (see physis.sim.model.GenomeDB).
 HASH_TABLE_SIZE = 1048576 * 2
 EMPTY_KEY = -1
 

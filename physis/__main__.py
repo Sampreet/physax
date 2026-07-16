@@ -1,9 +1,9 @@
 import jax
 import jax.numpy as jnp
 from jax import random
-from physax.sim.config import make_config, PERCENTILES, UNCLASSIFIED
-from physax.sim.model import Model
-from physax.analysis.visualization import generate_all_visualizations
+from physis.sim.config import make_config, PERCENTILES, UNCLASSIFIED
+from physis.sim.model import Model
+from physis.analysis.visualization import generate_all_visualizations
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     if len(stats) > 0:
         top_hashes = generate_all_visualizations(stats, path, cfg)
 
-        from physax.sim.model import global_self_replicating_genomes, global_fertile_genomes
+        from physis.sim.model import global_self_replicating_genomes, global_fertile_genomes
 
         all_genomes_dict = {f"{h[0]}_{h[1]}" if isinstance(h, tuple) else str(h): g for h, g in global_self_replicating_genomes.items()}
         if all_genomes_dict:

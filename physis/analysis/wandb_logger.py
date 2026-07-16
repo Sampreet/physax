@@ -13,7 +13,7 @@ try:
 except ImportError:
     WANDB_AVAILABLE = False
 
-from physax.analysis._util import fold_hash
+from physis.analysis._util import fold_hash
 
 
 def init_wandb(cfg, total_cycles):
@@ -73,7 +73,7 @@ def log_language_properties(cycle_num, lang_stats, log_hist=False):
     # defines its own registers and instruction set). Scalars are logged every
     # chunk so trends are visible; the opcode/symbol bar charts are heavier media
     # and only logged when log_hist is set (same cadence as the frequency reports).
-    from physax.sim.config import OP_NAMES, UP_IS_SIZE
+    from physis.sim.config import OP_NAMES, UP_IS_SIZE
 
     metrics = {f"language/{k}": v for k, v in lang_stats['scalars'].items()}
 
@@ -107,9 +107,9 @@ def log_mutational_robustness(cycle_num, rob_stats):
     wandb.log(metrics, step=cycle_num)
 
 def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
-    from physax.analysis.genome_stats import compute_diversity_stats
-    from physax.analysis.visualization import draw_3panel_frame
-    from physax.sim.config import BLANK, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
+    from physis.analysis.genome_stats import compute_diversity_stats
+    from physis.analysis.visualization import draw_3panel_frame
+    from physis.sim.config import BLANK, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
     
     div_stats = compute_diversity_stats(snapshot)
     wandb_dict = {f"diversity/{k}": v for k, v in div_stats.items()}
@@ -168,10 +168,10 @@ def log_snapshot_and_diversity(cycle_num, snapshot, cfg):
     wandb.log(wandb_dict, step=cycle_num)
 
 def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_fertile, output_dir, cfg):
-    from physax.analysis.genome_stats import format_genome
+    from physis.analysis.genome_stats import format_genome
     
     def format_decoded_genome(gen_arr, length):
-        from physax.sim.config import OP_NAMES, N_OPERANDS, BLANK
+        from physis.sim.config import OP_NAMES, N_OPERANDS, BLANK
         i = 0
         decoded = []
         genome = [int(x) for x in gen_arr[:length]]
@@ -252,9 +252,9 @@ def log_frequency_reports(cycle_num, snapshot, global_self_replicating, global_f
         import jax
         import jax.numpy as jnp
         import numpy as np
-        from physax.sim.agent import Agent
-        from physax.sim.config import UNCLASSIFIED, BLANK
-        from physax.analysis.genome_evaluator import run_batch_until_division
+        from physis.sim.agent import Agent
+        from physis.sim.config import UNCLASSIFIED, BLANK
+        from physis.analysis.genome_evaluator import run_batch_until_division
         
         alive_hashes = snapshot['hash'][snapshot['alive']]
         if alive_hashes.ndim == 2:

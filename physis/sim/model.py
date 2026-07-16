@@ -15,13 +15,13 @@ from functools import partial
 from tqdm import trange
 import os
 import pickle
-import physax.analysis.wandb_logger as wandb_logger
+import physis.analysis.wandb_logger as wandb_logger
 
-from physax.sim.config import *
-from physax.sim.agent import Agent
-from physax.sim.classification import classify_genome, get_execution_route, compute_cycle_stats
-from physax.analysis.genome_stats import compute_language_stats
-from physax.analysis.genome_evaluator import compute_mutational_robustness
+from physis.sim.config import *
+from physis.sim.agent import Agent
+from physis.sim.classification import classify_genome, get_execution_route, compute_cycle_stats
+from physis.analysis.genome_stats import compute_language_stats
+from physis.analysis.genome_evaluator import compute_mutational_robustness
 from typing import NamedTuple
 
 # Percentiles logged per chunk for each genome-part distribution (registers, instructions,
@@ -409,7 +409,7 @@ class Model:
                        snapshot_interval=0, collect_interval=1):
         """Run the simulation for total_cycles.
 
-        Slow-track execution uses the CUDA VM kernel (physax.sim.vm_kernel.VMRunner).
+        Slow-track execution uses the CUDA VM kernel (physis.sim.vm_kernel.VMRunner).
         The kernel cannot run inside lax.scan/jit, so cycles are driven from
         Python: the pre- and post-VM halves stay jitted, with the kernel launched
         between them.
@@ -439,7 +439,7 @@ class Model:
 
         # The CUDA VM can't run inside jit/lax.scan, so drive cycles from Python
         # with the pre/post halves jitted and the kernel launched in between.
-        from physax.sim.vm_kernel import VMRunner
+        from physis.sim.vm_kernel import VMRunner
         vm_runner = VMRunner(self.cfg)
         pre_jit = jax.jit(self._pre_vm)
         post_jit = jax.jit(self._post_vm)
@@ -469,7 +469,7 @@ class Model:
                         pop.alive & (pop.status == FERTILE))
             stats = jax.tree.map(lambda *xs: jnp.stack(xs), *stats_list)
             return pop, db, cycle_idx, stats
-        print(f"VM backend: CUDA kernel (physax.sim.vm_kernel.VMRunner); "
+        print(f"VM backend: CUDA kernel (physis.sim.vm_kernel.VMRunner); "
               f"genome collection every {collect_interval} cycles")
 
         if track_lineage:
@@ -602,7 +602,7 @@ class Model:
 
                 # Persist a population genome snapshot on a coarser cadence than
                 # the edge files, so lineage ids can be mapped back to genotypes
-                # post-hoc (see physax.analysis).
+                # post-hoc (see physis.analysis).
                 # The genome grid is large, so this is gated on snapshot_interval
                 # (a multiple of log_interval) rather than saved every chunk.
                 if (track_lineage and snapshot_interval > 0

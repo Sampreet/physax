@@ -1,12 +1,12 @@
 #!/usr/bin/env python
-"""Generate the summary figures for docs/experiment_summary.tex.
+"""Generate the summary figures for paper/experiment_summary.tex.
 
 Self-contained: reads each run's lineage/ snapshots (genomes, status, executed)
 and edge files (births), recomputes population / diversity / genome-structure /
-language metrics per snapshot, and writes vector PDFs into docs/figures/.
+language metrics per snapshot, and writes vector PDFs into paper/figures/.
 
 Run (CPU is fine, keeps GPUs free for the live sims):
-    JAX_PLATFORMS=cpu .venv/bin/python docs/make_figures.py
+    JAX_PLATFORMS=cpu .venv/bin/python paper/make_figures.py
 Re-run any time; it just picks up whatever snapshots have accumulated.
 """
 import os, glob, pickle, argparse
@@ -17,10 +17,10 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 
 import jax
-from physax.sim.config import make_config, SELF_REPLICATING, FERTILE, UNCLASSIFIED, BLANK
-from physax.sim.agent import Agent
-from physax.analysis.genome_stats import compute_language_stats, compute_diversity_stats
-from physax.analysis.gp_map import (load_snapshots, functional_diversity, gp_map_bias,
+from physis.sim.config import make_config, SELF_REPLICATING, FERTILE, UNCLASSIFIED, BLANK
+from physis.sim.agent import Agent
+from physis.analysis.genome_stats import compute_language_stats, compute_diversity_stats
+from physis.analysis.gp_map import (load_snapshots, functional_diversity, gp_map_bias,
                              genotype_network, gp_bipartite)
 import networkx as nx
 

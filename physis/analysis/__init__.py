@@ -6,5 +6,5 @@ driving the simulation: GP-map structure (`gp_map`), genome/language statistics
 (`virtual_machine`, `genome_evaluator`), plotting (`visualization`), and W&B
 logging (`wandb_logger`).
 
-The simulation engine itself lives in the sibling `physax.sim` package.
+The simulation engine itself lives in the sibling `physis.sim` package.
 """

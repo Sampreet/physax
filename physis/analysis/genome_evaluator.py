@@ -8,9 +8,9 @@ the reproducibility test, and the evaluation scripts.
 import jax
 import jax.numpy as jnp
 from jax import random
-from physax.analysis.virtual_machine import VirtualMachine
-from physax.sim.config import UNCLASSIFIED, UP_IS_SIZE
-from physax.sim.agent import Agent
+from physis.analysis.virtual_machine import VirtualMachine
+from physis.sim.config import UNCLASSIFIED, UP_IS_SIZE
+from physis.sim.agent import Agent
 
 def run_batch_until_division(agents, max_steps, keys, cfg):
     vm = VirtualMachine(cfg)

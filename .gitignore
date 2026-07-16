@@ -2,7 +2,7 @@
 uv.lock
 .vscode
 *.gif
-!docs/evolution_3panel.gif
+!paper/evolution_3panel.gif
 *.png
 *.txt
 __pycache__

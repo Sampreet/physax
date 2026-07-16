@@ -4,12 +4,12 @@ Consumes the ``snapshot_*.npz`` files written by
 ``Model.run_simulation(..., snapshot_interval>0)`` and computes GP-map structure
 (functional diversity, GP-map bias, genotype networks) plus per-snapshot
 fitness/merit properties. Pure NumPy (+ optional networkx); not JIT'd. Used by
-``docs/make_figures.py`` and ``physax.analysis.visualization``.
+``paper/make_figures.py`` and ``physis.analysis.visualization``.
 """
 import glob
 import numpy as np
 
-from physax.sim.config import UP_IS_SIZE, SELF_REPLICATING, FERTILE
+from physis.sim.config import UP_IS_SIZE, SELF_REPLICATING, FERTILE
 
 
 def load_snapshots(lineage_dir):

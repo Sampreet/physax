@@ -4,17 +4,17 @@ Diversity/gestation summaries, the emergent-"language" metrics (vocabulary,
 instruction-set composition, dialects), genome-to-text formatting, and the
 top-genomes-over-time plot. These consume saved snapshots/stats after a run and
 are not part of the jitted simulation loop (that is
-:mod:`physax.sim.classification`).
+:mod:`physis.sim.classification`).
 """
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-from physax.sim.config import (
+from physis.sim.config import (
     Config, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE,
     OP_NAMES, UP_IS_SIZE, N_OPERANDS,
 )
-from physax.analysis._util import fold_hash, shannon_entropy
+from physis.analysis._util import fold_hash, shannon_entropy
 
 
 def compute_diversity_stats(snap):

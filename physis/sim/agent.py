@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import jax.lax as lax
 from jax import random
 from typing import NamedTuple
-from physax.sim.config import Config, N_OPERANDS, UP_IS_SIZE, BLANK, I, SEP, R, S, Q, B, MOVE, NOP, CLEAR, INC, CINC, LOAD, IS_SEP, IFZERO, JUMP, ALLOCATE, REL_STORE, DEC, IFNOTZERO, DIVIDE, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
+from physis.sim.config import Config, N_OPERANDS, UP_IS_SIZE, BLANK, I, SEP, R, S, Q, B, MOVE, NOP, CLEAR, INC, CINC, LOAD, IS_SEP, IFZERO, JUMP, ALLOCATE, REL_STORE, DEC, IFNOTZERO, DIVIDE, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD
 
 class Agent(NamedTuple):
     """Immutable state representation of a single organism."""

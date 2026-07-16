@@ -3,11 +3,11 @@
 These are the jittable functions the population loop calls every cycle:
 classify each organism by its division behaviour, map a status to a fast/slow
 execution route, and compute the lightweight per-cycle logging stats. Offline
-genome/language statistics live in :mod:`physax.analysis.genome_stats`.
+genome/language statistics live in :mod:`physis.analysis.genome_stats`.
 """
 import jax.numpy as jnp
 
-from physax.sim.config import (
+from physis.sim.config import (
     Config, UNCLASSIFIED, SELF_REPLICATING, FERTILE, NON_FERTILE, NON_STANDARD,
     FAST_TRACK, SLOW_TRACK, PERCENTILES,
 )

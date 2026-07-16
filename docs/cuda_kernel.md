@@ -1,9 +1,9 @@
 # The CUDA VM kernel: what it is and what changed
 
 > **Status:** the CUDA kernel is now the **only** slow-track VM backend for the
-> simulation, so a CUDA GPU is required to run `python -m physax`. The old
+> simulation, so a CUDA GPU is required to run `python -m physis`. The old
 > `--kernel` flag (and the pure-JAX `_vm_jax` sim path it toggled) has been
-> removed. The pure-JAX interpreter (`physax.virtual_machine.VirtualMachine`)
+> removed. The pure-JAX interpreter (`physis.virtual_machine.VirtualMachine`)
 > still exists as the reference used for offline genome evaluation and for the
 > reproducibility test that validates the kernel. Historical `--kernel` /
 > `use_kernel` references below describe the original change.
@@ -23,7 +23,7 @@ an optimization, not a change in behavior.
 ## 1. Why the JAX VM was the bottleneck
 
 The simulation spends almost all its time in `VirtualMachine.update`
-([physax/virtual_machine.py](../physax/analysis/virtual_machine.py)): a little interpreter
+([physis/virtual_machine.py](../physis/analysis/virtual_machine.py)): a little interpreter
 that runs each organism's genome as bytecode — fetch an instruction, decode it,
 execute one of 44 opcodes, repeat.
 
@@ -129,7 +129,7 @@ Two facts made this port tractable:
 
 ---
 
-## 3. The kernel — [physax/vm_kernel.py](../physax/sim/vm_kernel.py) (new file)
+## 3. The kernel — [physis/vm_kernel.py](../physis/sim/vm_kernel.py) (new file)
 
 This is the whole new file. Its shape:
 
@@ -175,7 +175,7 @@ dtype"). Numba's `cuda.as_cuda_array(x)` reads that protocol and hands back a
 *view* — no copy. The kernel writes through the view, and because it's the same
 memory, the JAX array now holds the updated values.
 
-That's what `VMRunner.run` does ([physax/vm_kernel.py](../physax/sim/vm_kernel.py)):
+That's what `VMRunner.run` does ([physis/vm_kernel.py](../physis/sim/vm_kernel.py)):
 
 ```python
 v = cuda.as_cuda_array                 # JAX array -> Numba view, zero copy
@@ -201,7 +201,7 @@ buffers), so this also sidesteps GPU out-of-memory issues.
 
 ---
 
-## 5. Wiring it into the cycle — [physax/model.py](../physax/sim/model.py)
+## 5. Wiring it into the cycle — [physis/model.py](../physis/sim/model.py)
 
 A Numba kernel **cannot run inside `jax.jit` / `lax.scan`.** But the original
 `run_simulation` ran many cycles fused inside one big jitted `lax.scan`. So the
@@ -268,9 +268,9 @@ path, which can't collect in Python because it runs inside `lax.scan`.
 
 | File | Change |
 |---|---|
-| **`physax/sim/vm_kernel.py`** | **New file.** The CUDA kernel (`build_vm_kernel`, `vm_kernel`), device helpers (`_clip`, `_tape_read`, `_tape_write`), and the `VMRunner` host driver + zero-copy bridge. |
-| **`physax/sim/model.py`** | `cycle_step` split into `_pre_vm` / `_vm_jax` / `_post_vm`. `_post_vm` gained a static `do_collect` flag and `lax.cond`-gated callbacks. `run_simulation` gained `use_kernel` and `collect_interval`; the kernel path adds `run_chunk` (Python-driven loop + Python genome collection). |
-| **`physax/__main__.py`** | New flags: `--kernel` (use the CUDA backend) and `--collect_interval N` (how often to archive genomes on the kernel path). |
+| **`physis/sim/vm_kernel.py`** | **New file.** The CUDA kernel (`build_vm_kernel`, `vm_kernel`), device helpers (`_clip`, `_tape_read`, `_tape_write`), and the `VMRunner` host driver + zero-copy bridge. |
+| **`physis/sim/model.py`** | `cycle_step` split into `_pre_vm` / `_vm_jax` / `_post_vm`. `_post_vm` gained a static `do_collect` flag and `lax.cond`-gated callbacks. `run_simulation` gained `use_kernel` and `collect_interval`; the kernel path adds `run_chunk` (Python-driven loop + Python genome collection). |
+| **`physis/__main__.py`** | New flags: `--kernel` (use the CUDA backend) and `--collect_interval N` (how often to archive genomes on the kernel path). |
 | **`pyproject.toml`** | Added the `numba-cuda` dependency. |
 
 The pure-JAX path is untouched in behavior and remains the correctness reference.
@@ -282,7 +282,7 @@ The pure-JAX path is untouched in behavior and remains the correctness reference
 The kernel is the default (and only) VM backend, so no flag is needed:
 
 ```bash
-python -m physax --pop_size 16384 --initial_pop 50 --total_cycles 200000 \
+python -m physis --pop_size 16384 --initial_pop 50 --total_cycles 200000 \
   --log_interval 50 --seed 62 --no-caching --max_micro_ops 32 \
   --track_lineage --snapshot_interval 1000 --wandb \
   --collect_interval 1

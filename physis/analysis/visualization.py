@@ -15,9 +15,9 @@ try:
 except ImportError:
     imageio = None
 
-from physax.sim.config import LS
-from physax.analysis._util import fold_hash
-from physax.analysis.gp_map import compute_snapshot_properties
+from physis.sim.config import LS
+from physis.analysis._util import fold_hash
+from physis.analysis.gp_map import compute_snapshot_properties
 
 
 # SS: use percentiles not avg -- include births
@@ -377,7 +377,7 @@ def plot_gestation_and_diversity(stats, filename="gestation_diversity.png"):
     """
     Plot the average gestation period and diversity of self-replicating/fertile agents over time.
     """
-    from physax.sim.config import UNCLASSIFIED, NON_FERTILE, SELF_REPLICATING, FERTILE
+    from physis.sim.config import UNCLASSIFIED, NON_FERTILE, SELF_REPLICATING, FERTILE
     
     cycles = []
     
@@ -569,8 +569,8 @@ def plot_unique_over_time(stats, filename="unique_over_time.png"):
 
 def generate_all_visualizations(stats, output_dir, cfg=None):
     from pathlib import Path
-    from physax.analysis.genome_stats import analyze_and_plot_top_genomes
-    from physax.sim.config import make_config
+    from physis.analysis.genome_stats import analyze_and_plot_top_genomes
+    from physis.sim.config import make_config
     
     path = Path(output_dir)
     if not path.exists():

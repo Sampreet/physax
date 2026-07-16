@@ -1,7 +1,7 @@
 # Physis: a GPU implemenation of an automata chemistry that evolves the programming language
 
 <p align="center">
-  <img src="docs/schematic.svg" alt="Physax schematic" width="700">
+  <img src="paper/schematic.svg" alt="Physis schematic" width="700">
 </p>
 
 <p align="justify">
@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/evolution_3panel.gif" alt="Evolution over a 200k-cycle run" width="800">
+  <img src="paper/evolution_3panel.gif" alt="Evolution over a 200k-cycle run" width="800">
 </p>
 
 <p align="center">
@@ -37,10 +37,10 @@ each a 200k-cycle run on the `128×128` grid (`pop_size 16384`) seeded with 50
 e.g. 0):
 
 ```bash
-python -m physax --pop_size 16384 --initial_pop 50 --total_cycles 200000 --log_interval 50 \
+python -m physis --pop_size 16384 --initial_pop 50 --total_cycles 200000 --log_interval 50 \
     --seed 62 --wandb --track_lineage --no-caching --max_micro_ops 32 --snapshot_interval 1000
 
-python -m physax --pop_size 16384 --initial_pop 50 --total_cycles 200000 --log_interval 50 \
+python -m physis --pop_size 16384 --initial_pop 50 --total_cycles 200000 --log_interval 50 \
     --seed 63 --wandb --track_lineage --no-caching --max_micro_ops 32 --snapshot_interval 1000
 ```
 
@@ -68,7 +68,7 @@ renderer at the run folder. It loads that run's `simulation_stats.pkl` and rewri
 figures in place:
 
 ```bash
-python -m physax.analysis.visualization --folder run_200000_cycles_seed_62_<timestamp>
+python -m physis.analysis.visualization --folder run_200000_cycles_seed_62_<timestamp>
 ```
 
 `--folder` is a folder name inside the base path (`output/` by default, or `$BASE_PATH`

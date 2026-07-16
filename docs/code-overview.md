@@ -1,6 +1,6 @@
-# Physax — Code Overview
+# Physis — Code Overview
 
-Physax is a [JAX](https://github.com/google/jax) reimplementation of **Physis** (a.k.a. ARCHE),
+Physis is a [JAX](https://github.com/google/jax) reimplementation of **Physis** (a.k.a. ARCHE),
 the Tierra-like digital-evolution system described in the accompanying paper:
 
 > Egri-Nagy & Nehaniv (2003), *Evolvability of the Genotype–Phenotype Relation in Populations of
@@ -22,7 +22,7 @@ processor. Because the processor and instruction set are now part of the heritab
 are subject to mutation and selection — the **genotype→phenotype mapping is itself evolvable**. This
 is what the paper means by a "universal processor" (analogous to a universal Turing machine).
 
-Physax runs this model for a whole **population in parallel** on GPU: organisms are `vmap`-ed across
+Physis runs this model for a whole **population in parallel** on GPU: organisms are `vmap`-ed across
 the population and simulation cycles run inside a `lax.scan`, with fixed-size padded arrays so
 everything stays JIT-compatible.
 
@@ -47,7 +47,7 @@ sections divided by a single `SEP` (separator) token:
 - **Program part** (after `SEP`): the actual executed code — a sequence of **indices into the
   instruction table** built from the definitions above.
 
-Parsing happens in [`agent.py`](../physax/sim/agent.py):
+Parsing happens in [`agent.py`](../physis/sim/agent.py):
 - `_build_structure` scans up to `SEP`, counts SEs, and records the separator position.
 - `_build_instruction_set` scans the `I` markers before `SEP` and compiles each definition into a
   normalized micro-op row of the `instruction_table` (opcodes normalized via `abs(v) % 44`, operand
@@ -61,7 +61,7 @@ a child tape, copies itself gene-by-gene into it, and calls `DIVIDE`.
 
 ## 3. The instruction set (opcodes)
 
-Opcodes and their operand counts are defined in [`isa.py`](../physax/sim/isa.py) (`OP_NAMES`,
+Opcodes and their operand counts are defined in [`isa.py`](../physis/sim/isa.py) (`OP_NAMES`,
 `N_OPERANDS`). The executable bodies live in `get_opcode_functions`, which returns 44 pure
 `(state, args) -> state` functions dispatched by `jax.lax.switch`. Categories:
 
@@ -84,7 +84,7 @@ requirement that no instruction can crash the processor.
 
 ## 4. Execution model
 
-The VM semantics are defined by the reference **`VirtualMachine`** in [`virtual_machine.py`](../physax/analysis/virtual_machine.py)
+The VM semantics are defined by the reference **`VirtualMachine`** in [`virtual_machine.py`](../physis/analysis/virtual_machine.py)
 (the simulation itself runs the bitwise-identical CUDA port in `sim/vm_kernel.py`; see [cuda_kernel.md](cuda_kernel.md)):
 
 - `update` runs `steps_per_update` (= 34) compound instructions via `lax.scan`, but only for organisms
@@ -108,7 +108,7 @@ computation.
 
 ## 5. Replication, mutation, and the population loop
 
-The **`Model`** in [`model.py`](../physax/sim/model.py) ties everything together and runs the
+The **`Model`** in [`model.py`](../physis/sim/model.py) ties everything together and runs the
 population-level simulation.
 
 **Replication.** An organism reproduces by:
@@ -145,11 +145,11 @@ snapshots.
 
 ## 6. Analysis & visualization
 
-- [`gp_map.py`](../physax/analysis/gp_map.py) — `compute_snapshot_properties` computes, per organism,
+- [`gp_map.py`](../physis/analysis/gp_map.py) — `compute_snapshot_properties` computes, per organism,
   **effective length** (executed genes), **merit** (= effective length, no external tasks), and
   **fitness** (= merit / gestation time). Fitness is only nonzero for organisms that actually
   reproduced.
-- [`visualization.py`](../physax/analysis/visualization.py) —
+- [`visualization.py`](../physis/analysis/visualization.py) —
   - `plot_metrics`: population size + births + genome-length percentiles over time.
   - `save_grid_gif`: an animation of the 2-D population grid coloured by lineage.
   - `save_physis_view_gif`: a richer per-organism view.
@@ -177,10 +177,10 @@ snapshots.
 
 ```bash
 uv venv && source .venv/bin/activate && uv sync
-python -m physax          # runs the simulation defined in physax/__main__.py
+python -m physis          # runs the simulation defined in physis/__main__.py
 ```
 
-Edit `physax/__main__.py` (or pass overrides through `make_config`) to change `pop_size`,
+Edit `physis/__main__.py` (or pass overrides through `make_config`) to change `pop_size`,
 `initial_pop`, `total_cycles`, and `log_interval`. It produces `simulation_metrics.png` and
 `evolution.gif`.
 
@@ -191,11 +191,11 @@ which traces a single ancestor organism through one complete replication for deb
 
 ## 9. File map
 
-The package is split into `physax/sim/` (the engine that *runs* a simulation)
-and `physax/analysis/` (post-hoc measurement, evaluation, and visualization of a
+The package is split into `physis/sim/` (the engine that *runs* a simulation)
+and `physis/analysis/` (post-hoc measurement, evaluation, and visualization of a
 run's outputs).
 
-**`physax/sim/` — simulation engine**
+**`physis/sim/` — simulation engine**
 
 | File | Role |
 |---|---|
@@ -206,7 +206,7 @@ run's outputs).
 | `sim/classification.py` | Per-cycle genome classification / execution routing / cycle stats (JAX) |
 | `sim/model.py` | Population init, per-cycle loop, birth/placement/mutation, run loop, logging |
 
-**`physax/analysis/` — post-hoc analysis**
+**`physis/analysis/` — post-hoc analysis**
 
 | File | Role |
 |---|---|
@@ -216,5 +216,5 @@ run's outputs).
 | `analysis/genome_stats.py` | Diversity/gestation and emergent-language statistics, top-genome plots |
 | `analysis/visualization.py` | Metric plots and grid/organism GIFs |
 | `analysis/wandb_logger.py` | Weights & Biases logging and end-of-run reports |
-| `physax/__main__.py` | Entry point wiring config → model → plots |
+| `physis/__main__.py` | Entry point wiring config → model → plots |
 ```
