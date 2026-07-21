@@ -1,7 +1,7 @@
 # Physis: a GPU implemenation of an automata chemistry that evolves the programming language
 
 <p align="center">
-  <img src="paper/schematic.svg" alt="Physis schematic" width="700">
+  <img src="paper/schematics/schematic.svg" alt="Physis schematic" width="700">
 </p>
 
 <p align="justify">
